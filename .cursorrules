@@ -6,14 +6,18 @@ core.js (163KB) and emit.js (143KB) are huge - locate first, never read whole.
 Verify with: cd 新版本; pwsh -File _dev\regress.ps1
 New .ps1 files MUST be saved as UTF-8 with BOM.
 
-KNOWN GAPS (not yet implemented - implementing these means NEW capability,
-confirm design intent before guessing semantics):
+WORKS: simple projects convert well; multi-screen/screen-switching is supported.
+KNOWN GAPS:
   1. broadcast/广播 triggering is unreliable
   2. pen layer vs sprite layer ordering is wrong
   3. sprite collision is not implemented
   4. physics is not implemented
-Complex projects therefore do NOT convert correctly.
-Use the 16 .bcm4 files in 测试用例/ to reproduce (广播测试, 画笔图层与印章测试, 精灵战争...).
+  5. large games run very slowly (severe performance problems)
+Items 1-4 mean implementing NEW capability - confirm design intent before
+guessing semantics. Item 5 needs actual profiling by whoever picks it up;
+the author is a single person with limited time and the specific bottlenecks
+are NOT yet identified. Use the 16 .bcm4 files in 测试用例/ to reproduce
+(广播测试, 画笔图层与印章测试, 精灵战争...).
 
 Framework by Gwier, implemented with DeepSeek Harness.
 Contributions welcome.

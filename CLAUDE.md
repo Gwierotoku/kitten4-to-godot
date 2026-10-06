@@ -14,5 +14,6 @@
 - `新版本/lib/k4/core.js`（163 KB）与 `emit.js`（143 KB）极大，**先按文档定位再改**，不要通读。
 - 改完跑回归：`cd 新版本; pwsh -File _dev\regress.ps1`（目标 0 error / 0 warning）。
 - 新增 `.ps1` 必须存为 **UTF-8 with BOM**（否则中文在 PowerShell 5.1 下解析失败）。
+- **许可证：CC BY-NC-SA 4.0 —— ⛔ 禁止商业使用**（详见 `LICENSE`）；衍生作品须沿用相同许可证。
 
 > 框架设计：**Gwier** ｜ 程序实现：**DeepSeek Harness** ｜ 作者主页：https://space.bilibili.com/689846180

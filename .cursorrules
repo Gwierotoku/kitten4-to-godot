@@ -20,4 +20,6 @@ are NOT yet identified. Use the 16 .bcm4 files in 测试用例/ to reproduce
 (广播测试, 画笔图层与印章测试, 精灵战争...).
 
 Framework by Gwier, implemented with DeepSeek Harness.
+LICENSE: CC BY-NC-SA 4.0 - COMMERCIAL USE IS PROHIBITED (see LICENSE).
+Derivative works must keep the same license.
 Contributions welcome.

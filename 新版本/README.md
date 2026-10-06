@@ -18,14 +18,14 @@
 
 ```powershell
 cd 新版本
-.\转换并验证.cmd "..\kitten示例项目\游戏-空白作品.bcm4" "_out\空白作品"
+.\转换并验证.cmd "..\kitten示例项目\射击生存.bcm4" "_out\射击生存"
 ```
 
 等价于：
 
 ```powershell
 & powershell -NoProfile -ExecutionPolicy Bypass -File .\huanzhuang.ps1 `
-    -Bcm4 '..\kitten示例项目\游戏-空白作品.bcm4' -Out '_out\空白作品'
+    -Bcm4 '..\kitten示例项目\射击生存.bcm4' -Out '_out\射击生存'
 ```
 
 只要转换，不要验证：
@@ -38,6 +38,11 @@ node convert.js '..\kitten示例项目\新的作品.bcm4' '_out\新作品' --cle
 > 资源导入必须跑够：265 个造型里有 165 个 SVG，光栅化慢，一次导不完。
 > 判据是 **`.import` 文件数 == 素材文件数**（`huanzhuang.ps1` 会自动重试 3 遍）。
 > 没导完就会在运行时刷 `No loader found for resource: ... .svg`。
+
+> 📦 **关于大型样本**：本文档下方多处引用的 `游戏-空白作品.bcm4`（19 MB）、
+> `pec2txt-phi谱面转换器.bcm4`（9 MB）、`大陆漂移学说`、`琪露诺的最强刨冰` 等大型工程，
+> **已从仓库移除**（原先位于 `kitten示例项目/大型项目/`）。
+> 相关数据是开发期的历史记录，如需复现请自备大型 `.bcm4`。
 
 ---
 
@@ -154,7 +159,7 @@ func _积木主体() -> void:
 | 检查项 | 结果 |
 |:---|:---|
 | `新的作品.bcm4`（190 KB）转换 + 导入 + 真跑 300 帧 | **stderr 0 行 → 0 error / 0 warning** ✅ |
-| `游戏-空白作品.bcm4`（19 MB）转换 + 导入 + 真跑 300 帧 | **stderr 0 行 → 0 error / 0 warning** ✅ |
+| `游戏-空白作品.bcm4`（19 MB）转换 + 导入 + 真跑 300 帧 | **stderr 0 行 → 0 error / 0 warning** ✅ ⚠样本不在仓库中 |
 | 19MB 工程规模 | 1 屏幕 / 37 角色 / 58 帽子 / 266 造型 / 422 文件 / 2.14 MB |
 | 资源导入 | 265/265 全部有 `.import` |
 | 未映射词条 | **0** |

@@ -1,0 +1,8 @@
+Kitten4(.bcm4) -> Godot 4 converter.
+IMPORTANT: read AGENTS.md first. The repo layout is messy; the only live
+implementation lives in 新版本/. Skip _backup/_out/_cache/_shots (gitignored).
+Read 技术路线汇报.md then 新版本/README.md before touching code.
+core.js (163KB) and emit.js (143KB) are huge - locate first, never read whole.
+Verify with: cd 新版本; pwsh -File _dev\regress.ps1
+New .ps1 files MUST be saved as UTF-8 with BOM.
+Framework by Gwier, implemented with DeepSeek Harness.

@@ -230,7 +230,8 @@ node convert.js '..\kitten示例项目\新的作品.bcm4' '_out\新作品' --cle
 
 **⛔ 禁止商业使用。** 任何人不得将本项目或其衍生作品用于商业目的；如需商业使用，必须事先取得著作权人的书面授权（联系：https://space.bilibili.com/689846180）。
 
-- 完整条款与细则见 **[LICENSE](LICENSE)** 文件。
+- 完整法律文本见 **[LICENSE](LICENSE)**（CC 官方英文原文，具法律效力）。
+- **中文说明与条款摘要**见 **[LICENSE-zh.md](LICENSE-zh.md)**（便于理解，以官方原文为准）。
 - 官方法律文本：https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode
 
 ### 第三方权利说明

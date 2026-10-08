@@ -21,7 +21,8 @@ extends 帽子基类
 
 var _区域: Area2D = null
 # 要监听的**别的**角色（K4 允许"A 的脚本监听 B 被点击"）；为空 = 监听自己
-var _监听节点: 角色类 = null
+#   ⚠ 单例化之后角色实例的类名是 `角色变量`（旧的 `角色类` 那一层已取消）。
+var _监听节点: 角色变量 = null
 
 ## 生成器覆写：K4 的「当 X 被 点击 / 按下 / 放开」是**哪一档**
 ##   取值：mouse_click（默认）/ mouse_down / mouse_up
@@ -36,13 +37,13 @@ func _配置监听角色() -> String:
 
 func _ready() -> void:
 	if 角色 != null and not 角色.k4_is_clone:  #k4特性
-		await get_tree().process_frame
+		if not await 让出帧(): return
 		_已启动 = true
 		var 目标名 := _配置监听角色()
 		if 目标名 != "":
 			var 找到 := 角色.找(目标名)
 			if 找到 != null and 找到 != 角色:
-				_监听节点 = 找到 as 角色类
+				_监听节点 = 找到 as 角色变量
 				return          # 监听别人 → 走 _input + 包围盒命中，不建 Area2D
 		_区域 = _找区域()
 		if _区域 == null:
@@ -103,6 +104,7 @@ func _input(_event: InputEvent) -> void:
 		return
 	if not _输入匹配(_event):
 		return
-	var k4点: Vector2 = 角色.call("_鼠标K4")
-	if _监听节点.包围盒().has_point(k4点):
+	# ⚠ `_鼠标K4` / `包围盒` 都是**积木实现**，住在函数单例上（第一参数是角色）
+	var k4点: Vector2 = K4Func._鼠标K4(角色)
+	if K4Func.包围盒(_监听节点).has_point(k4点):
 		启动()

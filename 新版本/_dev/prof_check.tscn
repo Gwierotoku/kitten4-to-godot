@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://_首帧剖析.gd" id="1"]
+
+[node name="_首帧剖析" type="Node"]
+script = ExtResource("1")

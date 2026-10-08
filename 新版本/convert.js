@@ -7,7 +7,7 @@
  *
  * 生成的工程结构见《全意义转换-设计规范》§1。
  * 转换**永远不会失败**：语义做不到的积木会在 全局/角色自带积木.gd 里留下桩（pass），
- * 你只要在 全局/角色类.gd 里把桩换成真实实现即可（那个文件转换器永不覆盖）。
+ * 你只要在 全局/函数单例.gd 里把桩换成真实实现即可（那个文件转换器永不覆盖）。
  */
 'use strict';
 
@@ -253,29 +253,50 @@ function convert(inFile, outDir, opts) {
     }
   });
 
-  // ---- 5. 角色类.gd 模板：只在不存在时写，永不覆盖 ----
-  var roleClassDst = path.join(outDir, '全局', '角色类.gd');
-  if (!fs.existsSync(roleClassDst)) {
-    var tpl = path.join(RUNTIME, '模板', '角色类.gd');
-    if (fs.existsSync(tpl)) {
-      copyFile(tpl, roleClassDst, stats);
-      report.warnings.push('已创建 全局/角色类.gd（模板）。这是你写实现的地方，以后转换不会覆盖它。');
+  // ★架构更新（单例化）：旧的两层「角色类.gd / 角色接口.gd」路线整体取消★
+  //   新架构：
+  //     角色实例：角色基类 → 角色变量 → <角色名>.gd
+  //     函数单例：角色自带积木 → 角色自定义积木 → 函数单例（autoload K4Func）
+  //   ⚠ 旧的 全局/角色类.gd **不直接删**（里面可能有你手写的实现）——
+  //     改名成 `角色类.gd.旧架构备份`，你把内容搬到 全局/函数单例.gd 即可。
+  (function () {
+    var 旧类 = path.join(outDir, '全局', '角色类.gd');
+    if (fs.existsSync(旧类)) {
+      var 备份 = 旧类 + '.旧架构备份';
+      try {
+        if (fs.existsSync(备份)) fs.rmSync(备份, { force: true });
+        fs.renameSync(旧类, 备份);
+        report.warnings.push('架构更新：全局/角色类.gd 这一层已取消，已改名为 全局/角色类.gd.旧架构备份 —— ' +
+          '请把它里面手写的实现搬到 全局/函数单例.gd（新架构下用户实现的唯一落点）。');
+      } catch (e) {
+        report.errors.push('改名 全局/角色类.gd 失败: ' + (e && e.message));
+      }
+    }
+    var 旧uid = path.join(outDir, '全局', '角色类.gd.uid');
+    if (fs.existsSync(旧uid)) { try { fs.rmSync(旧uid, { force: true }); } catch (e) { /* 忽略 */ } }
+  })();
+
+  // ---- 5. 函数单例.gd（autoload K4Func）：只在不存在时写，永不覆盖 ----
+  var 单例Dst = path.join(outDir, '全局', '函数单例.gd');
+  if (!fs.existsSync(单例Dst)) {
+    var tpl2 = path.join(RUNTIME, '模板', '函数单例.gd');
+    if (fs.existsSync(tpl2)) {
+      copyFile(tpl2, 单例Dst, stats);
+      report.warnings.push('已创建 全局/函数单例.gd（模板）。这是你写实现的地方，以后转换不会覆盖它。');
     } else {
-      report.errors.push('缺少 runtime/模板/角色类.gd');
+      report.errors.push('缺少 runtime/模板/函数单例.gd');
     }
   } else {
-    // ★极少数会动你文件的例外★：角色层改名后，老 角色类.gd 里的 `extends 角色接口`
-    // 会找不到基类。这里**只改 extends 那一行**，其余内容一个字都不碰。
+    // ★极少数会动你文件的例外★：只把 extends 那一行从旧基类改成新基类，其余一个字不动。
     try {
-      var rc = fs.readFileSync(roleClassDst, 'utf8');
-      var fixed = rc.replace(/^(\s*extends\s+)角色接口\s*$/m, '$1角色自定义积木');
-      if (fixed !== rc) {
-        fs.writeFileSync(roleClassDst, fixed, 'utf8');
-        report.warnings.push('已把 全局/角色类.gd 的 `extends 角色接口` 改成 `extends 角色自定义积木`' +
-          '（只改了这一行，你的实现没动）');
+      var sc = fs.readFileSync(单例Dst, 'utf8');
+      var fixed2 = sc.replace(/^(\s*extends\s+)角色类\s*$/m, '$1角色自定义积木');
+      if (fixed2 !== sc) {
+        fs.writeFileSync(单例Dst, fixed2, 'utf8');
+        report.warnings.push('已把 全局/函数单例.gd 的 `extends 角色类` 改成 `extends 角色自定义积木`（只改了这一行）');
       }
     } catch (e) {
-      report.errors.push('更新 全局/角色类.gd 的 extends 失败: ' + (e && e.message));
+      report.errors.push('更新 全局/函数单例.gd 的 extends 失败: ' + (e && e.message));
     }
   }
 
@@ -409,7 +430,7 @@ function main() {
   var un = Object.keys(r.genReport.unknown || {});
   if (un.length) console.log('  ⚠ 未映射词条 ' + un.length + ' 个: ' + un.slice(0, 20).join(' '));
   if (Object.keys(r.genReport.stubs || {}).length) {
-    console.log('  桩（待你在角色类里实现）: ' + Object.keys(r.genReport.stubs).filter(function (k) { return k !== '__play_sound_wait'; }).join(' '));
+    console.log('  桩（待你在函数单例里实现）: ' + Object.keys(r.genReport.stubs).filter(function (k) { return k !== '__play_sound_wait'; }).join(' '));
   }
   if (r.genReport.argMismatch && r.genReport.argMismatch.length) {
     console.log('  ⚠ 实参个数不匹配: ' + JSON.stringify(r.genReport.argMismatch.slice(0, 10)));

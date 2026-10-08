@@ -51,6 +51,34 @@
 | `probe_*.js` | **K4 真值来源**：字段名 / 块类型的实证探针（`node _dev/probe_xxx.js <bcm4>`）。⚠ `core.js` 的注释会引用它们的**文件名**，**不要改名**，否则注释里的"实测来源"就悬空了 |
 | `逻辑审计报告.md` | 循环 / warp 的只读静态审计报告（含 P1/P2/P3 清单） |
 
+## 运行期检验脚本（第二十三轮新增，`.gd` + 同名 `.tscn` 成对用）
+
+拷进**已转换的工程**根目录，然后
+`godot --headless --path <工程> --fixed-fps 60 res://_<脚本>.tscn`。
+
+| 脚本 | 用途 |
+|:---|:---|
+| `prof_check` | 首帧 / 慢帧剖析：`instantiate` 耗时、每帧耗时（只报 >50ms）、`Performance.TIME_PROCESS`、对象 / 节点 / 孤儿数 —— 定位"卡在脚本还是引擎" |
+| `clone_audit_check` | 克隆 / 帽子审计：节点总数、每个角色的**原体 / 克隆**实例数、**每顶帽子的点火次数**（`_触发次数`）、克隆体**按出生帧分布**（抓"一帧冒出多个"） |
+| `clone_limit_check` | K4 两道克隆上限：一帧内狂调 `克隆自己()` 1200 次，应只成功 300、存活 300 |
+| `cloud_check` | 云变量持久化：读 → +1 → 写，连跑两次看是否递增、存档文件内容 |
+| `screen_cycle_check` | 切屏循环：订阅 `K4Global.屏幕切换` 信号记录**每一次**切换（同帧连锁切换也不会漏），跑 900 帧打印序列 |
+| `load_cost_check` | 逐个 `load()` 工程里的脚本并计时 —— 实测**编译成本主要看 await 数量**（1007 行 / 166 await = 4.4s；而 8027 行的大文件因为早被 autoload 链加载过所以显示 0ms） |
+| `pen_stress_check` | 画笔压力微基准：每帧 350 图章 + 350 文字图章。**必须非 headless**（headless 不执行 `_draw()`） |
+| `probe_op_hist.js` | IR 的 op/k 频次直方图。⚠ **必须遍历 `sc.actors[]`** —— 脚本挂在角色上，只走 `sc.scripts`/`sc.procs` 会得到"节点总数 0" |
+| `probe_split_ir.js` | 看 `列表取值_特殊` 在 IR 里的实际形态（诊断模式识别为什么没命中） |
+
+### 写这些检验脚本时的三个坑（都踩过）
+
+1. **别用 `:=` 接 `call()` / `load()` / `instantiate()` 的返回值** —— 它们返回 Variant，
+   `:=` 推断成 Variant 会触发 `The variable type is being inferred from a Variant value`
+   （本工程把该警告**当错误**）→ 脚本加载失败 → 场景没脚本、主循环永不退出，
+   看起来像"卡死"。
+2. **`root` 在 `_ready` 期间会拒绝 `add_child`** —— 容器根本没进树、屏幕一个都没登记、
+   `当前屏幕` 恒为空。必须先 `await get_tree().process_frame` 再 `add_child`。
+3. **`convert.js --clean` 会清空输出目录** —— 每次重转之后 `.gd` **和** `.tscn`
+   两个都要重新拷（只拷 `.gd` 的话跑起来毫无输出）。
+
 ## 收尾清理删掉了什么（一次性、或已并入别处）
 
 - **临时日志**：`_check_空白作品.log`、`_run_空白作品.log`

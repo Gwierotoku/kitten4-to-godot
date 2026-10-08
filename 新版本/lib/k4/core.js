@@ -890,18 +890,27 @@
         // Kitten4：TEXT1(文本) / TEXT2(要找的子串)（Scratch 是 VALUE / FIND）
         return op('str_contains', [A2(['TEXT1', 'VALUE', 'STRING', 'A']), A2(['TEXT2', 'FIND', 'B'])]);
       }
-      case 'text_select_changeable':
-        // K4 的「文本 [STRING] 的第 [NUM0] 到 [NUM1] 个字符」
-        //（mutation items="2" 就是那两个可变数字槽）。
-        // 以前这里直接降级成 to_string(STRING) —— 前后两个数字整个丢掉，
-        // 7 处「截取」全变成"原样返回整段文本"。
+      case 'text_select_changeable': {
+        // K4 的这个块有**两种槽数**（看输入名里有没有 NUM1）：
+        //   items=1：「文本 [STRING] 的第 [NUM0] 个字符」       → 取**单个**字符
+        //   items=2：「文本 [STRING] 的第 [NUM0] 到 [NUM1] 个字符」→ 截取一段
+        // ⚠ 以前一律按"截取"生成：单槽块读不到 NUM1（默认成 0），
+        //   于是「取第 i 个字符」变成「取前 i 个字符」——
+        //   实测 画笔图层与执行顺序测试 的数字显示器（score="365"）：
+        //   i=1 得 "3" ✓、i=2 得 "36" ✗ → 造型编号算成 36 → 画面上的 365 出不来。
         // 参数照 str_substring 的 5 元组给（第 3/5 个是 FROM_START/FROM_END 标志，
         // 这个块没有那个下拉，恒为 FROM_START）。
-        return op('str_substring', [
-          A2(['STRING', 'VALUE', 'TEXT', 'A']),
-          A2(['NUM0', 'FROM', 'AT1', 'B']), str('FROM_START'),
-          A2(['NUM1', 'TO', 'AT2', 'C']), str('FROM_START')
-        ]);
+        var 文本 = A2(['STRING', 'VALUE', 'TEXT', 'A']);
+        var 名 = this.inputNames(blockId, block);
+        if (名.indexOf('NUM1') >= 0) {
+          return op('str_substring', [
+            文本,
+            A2(['NUM0', 'FROM', 'AT1', 'B']), str('FROM_START'),
+            A2(['NUM1', 'TO', 'AT2', 'C']), str('FROM_START')
+          ]);
+        }
+        return op('str_char_at', [文本, A2(['NUM0', 'AT', 'INDEX', 'B'])]);
+      }
       case 'get_mouse_info': {
         // ★K4 的字段名是 `position`，不是 `scope`★（实测 _dev/probe_block_raw.js）
         //   以前写成 F('scope','x') → 永远读不到 → 默认值恒为 'x'，
@@ -1276,7 +1285,14 @@
     }
 
     // 未知表达式块 -> 占位 + 警告
-    this.warn('未支持的取值积木 "' + t + '"（已按空值处理）');
+    //   ★屏幕类取值块**不算未支持**★：get_current_scene / get_sensing_current_scene
+    //     由 emit.js 的 屏幕取值() 直接生成（当前屏 / 下一屏 / 上一屏），
+    //     check_screen 由 emit.expr 生成 `角色.当前屏幕是(...)`。
+    //     以前这里会跟着 warn 一句"未支持的取值积木" —— 功能明明是好的，
+    //     报告却写着"未支持"（实测 切屏用例就被这条误导过）。
+    if (t !== 'get_current_scene' && t !== 'get_sensing_current_scene' && t !== 'check_screen') {
+      this.warn('未支持的取值积木 "' + t + '"（已按空值处理）');
+    }
     // 取值类兜底：把输入一起带上（否则 check_screen 这类判断积木没法生成）
     var gIn = {};
     try {
@@ -1982,10 +1998,19 @@
           value: this.valueAny(blockId, ['steps', 'value', 'VALUE'])
         };
       }
+      // ★这两个块**不是**落笔 / 抬笔★
+      //   K4 源码（kitten.*.js 的 47954 / 47962 行）：
+      //     pen_begin_path → start_fill_path()：开始记录填充路径 —— 挂上角色 change 监听，
+      //                      角色每移动一次就记一个点，**起点 = 角色当前位置**（不需要落笔！）
+      //     pen_close_path → end_fill_path()：把记录的点连成**闭合路径**后 fill()，
+      //                      填充色取 set_fill_style（没设就用画笔色），lineJoin = round
+      //   以前这里映射成 pen_down / pen_up —— 于是"填充"实际变成"画一条线"，
+      //   用户看到的就是"画笔填充功能没法用"。
+      //   `set_pen_path`（下拉选 起点/终点）是同一行为的另一个入口，见它上面的 case。
       case 'pen_begin_path':
-        return { k: 'pen_down' };
+        return { k: 'fill_path', point: 'start_point' };
       case 'pen_close_path':
-        return { k: 'pen_up' };
+        return { k: 'fill_path', point: 'end_point' };
 
       // 图层
       // 图层：K4 是**四档**下拉（用户截图：移至 最上层 / 最下层 / 上一层 / 下一层）
@@ -2476,7 +2501,12 @@
         break;
     }
 
-    this.warn('未支持的语句积木 "' + t + '"（已生成类型层方法调用桩）');
+    // ★由 emit.js 的 stmtLines 按 type 直接实现的块**不算未支持**★
+    //   `switch_to_screen` → `角色.切换屏幕(<屏幕实参>)`（屏幕实参见 emit 的 screenArg）。
+    //   以前这里会跟着 warn 一句"未支持的语句积木"，报告里看着像没实现 —— 实测误导过一轮。
+    if (t !== 'switch_to_screen') {
+      this.warn('未支持的语句积木 "' + t + '"（已生成类型层方法调用桩）');
+    }
     return this.stubStmt(blockId, block);
 
     function unused() { return S; }
@@ -2795,7 +2825,30 @@
             actors.push(act);
           }
         }
-        if (aorder) {
+        // ★角色图层的先后 = `scene.group_order`★（K4 里每个角色被包在一个"图层组"里，
+        //   group_order 就是 K4 编辑器左侧面板**从上到下**的顺序）。
+        //   Godot 里同一父节点下**越靠后添加的画得越上面**，所以这里按它**倒序**排：
+        //     group_order[0]（面板最上）→ 排到最后 → 画在最上层 ✓
+        //   ⚠ 以前只认 `sc.raw.actors`（K4 导出的那个数组**经常是空数组**），
+        //     一旦为空顺序就退回 `theatre.actors` 的键顺序（= 角色创建顺序），
+        //     和真实图层无关 —— 于是「移到画笔下方 / 移到图层」这类依赖"谁在谁上面"
+        //     的积木结果全错（实测 画笔图层与执行顺序测试：绿盖住了本该压住它的紫）。
+        var 组顺序 = (sc.raw && Array.isArray(sc.raw.group_order)) ? sc.raw.group_order : null;
+        if ((!aorder || !aorder.length) && 组顺序 && isObj(th.groups)) {
+          var 序 = [];
+          组顺序.forEach(function (gid) {
+            var g = th.groups[gid] || {};
+            (Array.isArray(g.actors) ? g.actors : []).forEach(function (aid) { 序.push(aid); });
+          });
+          if (序.length) {
+            actors.sort(function (a, b) {
+              var ia = 序.indexOf(a.id), ib = 序.indexOf(b.id);
+              if (ia < 0) ia = 序.length;
+              if (ib < 0) ib = 序.length;
+              return ib - ia;                 // ★倒序★：面板最上 = 最后添加 = 画在最上
+            });
+          }
+        } else if (aorder && aorder.length) {
           actors.sort(function (a, b) {
             return aorder.indexOf(a.id) - aorder.indexOf(b.id);
           });

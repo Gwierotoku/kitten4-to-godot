@@ -132,6 +132,11 @@
   add(['lists_itemOf', 'lists_getIndex'], 'data', 'list_item', 'C');
   add(['broadcast_input'], 'data', 'lit:str', 'A');
   add(['get_current_scene', 'get_sensing_current_scene'], 'data', 'lit:str', 'A');
+  // ★屏幕 / 场景★：由生成器直接实现（emit.js 的 屏幕取值 / screenArg）。
+  //   目标屏幕放在 get_current_scene 影子的 `scene` 字段里 —— 可以是屏幕名，
+  //   也可以是 `__next_scene` / `__prev_scene`（下一屏 / 上一屏）。
+  add(['switch_to_screen'], 'data', 'screen:switch', 'A');
+  add(['check_screen'], 'data', 'screen:check', 'A');
   add(['default_value'], 'data', 'lit:str', 'A');
 
   /* ---------------- 运算 ---------------- */
@@ -258,8 +263,13 @@
 
   /* ---- 画笔 ---- */
   add(['clear_drawing'], 'pen', 'pen_clear', 'A');
-  add(['self_pen_down', 'pen_begin_path'], 'pen', 'pen_down', 'A');
-  add(['self_pen_up', 'pen_close_path'], 'pen', 'pen_up', 'A');
+  add(['self_pen_down'], 'pen', 'pen_down', 'A');
+  add(['self_pen_up'], 'pen', 'pen_up', 'A');
+  // ★填充的两个块**不是**落笔 / 抬笔★（K4 源码 47954 / 47962）：
+  //   pen_begin_path = 开始记录填充路径（角色每动一次记一个点）
+  //   pen_close_path = 闭合路径 + 填充
+  //   以前和落笔/抬笔并在一起，导致填充功能整个失效。
+  add(['pen_begin_path', 'pen_close_path', 'set_pen_path'], 'pen', 'fill_path', 'A');
   // Kitten4 的 `stamp` 是「文字图章」（text + size + align），不是画笔图章
   add(['stamp'], 'pen', 'text_stamp', 'A');
   add(['self_set_pen_size'], 'pen', 'pen_size', 'A');

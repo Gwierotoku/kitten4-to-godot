@@ -64,6 +64,29 @@ class 烘焙器 extends Node2D:
 	var 底图: Texture2D = null
 	var 待画: Array = []
 
+	## 文字的**对齐起点**（唯一一份逻辑，外层 _画文字() 也调它 ——
+	## 这样"烘焙前 / 烘焙后"的文字位置不可能不一致）。
+	##
+	##   ⚠ 不能用 draw_string 自带的 alignment 参数：Godot 在 `width < 0` 时会
+	##     **忽略**它（官方 issue #94394 "Alignment setting in draw_string doesn't
+	##     do anything"），而 K4 的文字图章必须支持 居左/居中/居右。
+	##     实测（_dev 的对齐专项检查）：width 传 -1 时 left/center/right
+	##     三种画在**完全相同**的位置上，全部按左对齐。
+	##   所以这里自己量文本宽度，把起点挪到 K4 的基准上，再一律用左对齐画。
+	##   K4 的语义（fields.align）：
+	##     left   → 文本**左缘**落在印章点
+	##     center → 文本**中心**落在印章点
+	##     right  → 文本**右缘**落在印章点
+	static func 文字对齐起点(_文本: String, _位: Vector2, _号: int, _对齐: String) -> Vector2:
+		var 宽 := ThemeDB.fallback_font.get_string_size(
+			_文本, HORIZONTAL_ALIGNMENT_LEFT, -1, _号).x
+		match String(_对齐).to_lower():
+			"center":
+				return _位 - Vector2(宽 * 0.5, 0.0)
+			"right":
+				return _位 - Vector2(宽, 0.0)
+		return _位
+
 	func _draw() -> void:
 		if 底图 != null:
 			draw_texture(底图, Vector2.ZERO)
@@ -85,13 +108,16 @@ class 烘焙器 extends Node2D:
 				var 号 := int(roundf(float(项.get("z", 0.0))))
 				if 号 <= 0:
 					continue
+				# 对齐 / 旋转必须与 _画文字() **完全一致** —— 两处逻辑一旦不一致，
+				# "烘焙前"和"烘焙后"的文字位置就会跳一下。
+				var 起 := 文字对齐起点(String(项["s"]), 位, 号, String(项.get("a", "center")))
 				var 转: float = 项.get("r", 0.0)
 				if is_zero_approx(转):
-					draw_string(ThemeDB.fallback_font, 位, 项["s"],
+					draw_string(ThemeDB.fallback_font, 起, 项["s"],
 						HORIZONTAL_ALIGNMENT_LEFT, -1, 号, 项["c"])
 				else:
 					draw_set_transform(位, 转, Vector2.ONE)
-					draw_string(ThemeDB.fallback_font, Vector2.ZERO, 项["s"],
+					draw_string(ThemeDB.fallback_font, 起 - 位, 项["s"],
 						HORIZONTAL_ALIGNMENT_LEFT, -1, 号, 项["c"])
 					draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 			elif t == "fill":
@@ -100,7 +126,41 @@ class 烘焙器 extends Node2D:
 				draw_colored_polygon(项["pts"], 项["c"])
 
 
-var 指令: Array[Dictionary] = []
+# -----------------------------------------------------------------------------
+# 【批次 / 双缓冲】显示批次 vs 写入批次
+# -----------------------------------------------------------------------------
+#   ★为什么需要两份★
+#   斗地主那种写法的画笔是"每帧 全部擦除 + 重画整屏"：
+#       while true:
+#           角色.进入warp(ctx)
+#           角色.全部擦除()            ← 擦掉整层
+#           ...画几百个图章 / 文字图章…  ← 重画（常常跨帧：warp 预算耗尽会让出）
+#           角色.退出warp(ctx)
+#           await 角色.一步(ctx)
+#   如果"擦除"立刻改变画面，那么"已经擦掉、还没画上"的那一帧就会**闪**一下
+#   （重画跨帧时更明显：画面从空开始一条一条长出来）。
+#   所以"擦除"只做两件事：① 清空**写入批次** —— 这就是 K4 的"把绘制任务清空"；
+#   ② 打上"待提交"标记。**画面（显示批次）保持不变**，直到写入批次画到一个稳定点，
+#   才整批**原子替换**过去 —— 于是永远看不到中间态。
+#
+#   提交时机（见 _process）：
+#     · 下一次"全部擦除"到来时（说明上一批已经画完了）—— "每帧擦除重画"靠这条；
+#     · 或者连续 2 帧没有新指令（绘制逻辑停下来了）—— "只擦不画"靠这条。
+#
+#   兼容：**从没调用过"全部擦除"**的工程是"累加模式"（画笔一路叠加），
+#   这时新指令直接进显示批次 —— 行为与以前完全一致，不需要等提交。
+var 指令: Array[Dictionary] = []          # ★显示批次★（_draw() 用这份；外部读到的也是它）
+var 工作指令: Array[Dictionary] = []      # 写入批次（所有绘制接口写这份）
+
+# 写入批次的底图（烘焙产物）；_底图 是显示批次的底图
+var _工作底图: ImageTexture = null
+# 写入批次里已经出现过"擦除" → 等一个稳定点整批替换显示
+var _待提交: bool = false
+# 最后一次写入的帧号（用来判"这一批画完了没有"）
+var _最后写入帧: int = -100
+# 批次版本号：烘焙是**异步**的（要等 frame_post_draw），期间若被擦除 / 提交过，
+# 这次烘焙的结果必须作废 —— 否则会把"上一批"的内容写回底图。
+var _批次号: int = 0
 
 var _脏: bool = false
 var _落笔中: bool = false
@@ -112,6 +172,16 @@ var _舞台底色: Color = Color.WHITE
 
 # 烘焙（见文件头）
 const 烘焙阈值 := 1200
+
+# ★"写入批次画完了"的判据：连续多少帧没有新指令（见 _process）★
+#   两条提交路径（见 _process / 全部擦除）：
+#     ① **下一次"全部擦除"**——"每帧擦除 + 重画"的写法走这条，延迟只有一帧；
+#     ② 连续 提交空闲帧数 帧没有新指令——"画完就不动了 / 只擦不画"走这条。
+#   4 帧 @60fps ≈ 67ms：既跨得过"擦除之后紧接着重画"的正常间隙（斗地主同一帧内
+#   擦除+重画，跨帧时也只隔 1~2 帧），又让"画一次就停"的工程几乎感觉不到延迟。
+#   ⚠ 不能更小：1~2 帧会把"擦除 → 停顿 → 重画"里的停顿误判成"这一批画完了"，
+#     把空批次提交上去 —— 又闪一下。
+const 提交空闲帧数 := 4
 var _底图: ImageTexture = null
 var _烘焙中: bool = false
 var _烘焙视口: SubViewport = null
@@ -143,6 +213,9 @@ func _尺寸变了() -> void:
 	# 舞台尺寸变了，烘焙出来的底图就不再对齐了 —— 直接丢掉重来
 	if _底图 != null:
 		_底图 = null
+	if _工作底图 != null:
+		_工作底图 = null
+	_批次号 += 1
 	if _烘焙视口 != null and is_instance_valid(_烘焙视口):
 		_烘焙视口.size = Vector2i(舞台矩形().size)
 	_脏 = true
@@ -164,20 +237,38 @@ func _取舞台色() -> Color:
 # -----------------------------------------------------------------------------
 # 对外指令接口（画布调度.gd 转发到这里）
 # -----------------------------------------------------------------------------
+## 把一条绘制任务写进**该写的那一批**（见文件头《批次 / 双缓冲》）
+func _加指令(_项: Dictionary) -> void:
+	if _待提交:
+		工作指令.append(_项)
+	else:
+		指令.append(_项)        # 累加模式：立即生效（与旧行为一致）
+	_最后写入帧 = Engine.get_process_frames()
+	_脏 = true
+
 func 落笔(_起点: Vector2, _终点: Vector2, _颜色: Color, _粗细: float) -> void:
 	_当前颜色 = _颜色
 	_当前粗细 = _粗细
-	指令.append({ "t": "line", "a": _起点, "b": _终点, "c": _颜色, "w": _粗细 })
-	_脏 = true
+	_加指令({ "t": "line", "a": _起点, "b": _终点, "c": _颜色, "w": _粗细 })
 
 func 抬笔() -> void:
 	_落笔中 = false
 
 ## 「全部擦除」——只清画笔画的东西，**不碰舞台背景**
+##
+##   ★语义 = "把绘制任务清空"（K4）★，但**不立刻**改变屏幕上的内容：
+##     清的是**写入批次**，显示批次原样留着，直到这一批画到稳定点再整批替换
+##     （见文件头《批次 / 双缓冲》）。这样"每帧擦除 + 重画"的写法不会再闪。
 func 全部擦除() -> void:
-	指令.clear()
-	_底图 = null          # 连烘焙好的底图一起擦掉
+	# 上一批已经有内容了（这次擦除 = 宣告上一批结束）→ 先把它原子替换上去
+	if _待提交 and 工作指令.size() > 0:
+		_提交()
+	工作指令.clear()
+	_工作底图 = null
+	_待提交 = true
 	_落笔中 = false
+	_批次号 += 1
+	_最后写入帧 = Engine.get_process_frames()
 	_脏 = true
 
 func 设置画笔颜色(_颜色: Color) -> void:
@@ -192,20 +283,21 @@ func 设置画笔粗细(_粗细: float) -> void:
 func 图章(_纹理: Texture2D, _变换: Transform2D) -> void:
 	if _纹理 == null:
 		return
-	指令.append({ "t": "stamp", "tex": _纹理, "xform": _变换 })
-	_脏 = true
+	_加指令({ "t": "stamp", "tex": _纹理, "xform": _变换 })
 
 ## 「文字图章 <文本> <字号>」
 ## ⚠ 旋转跟着**调用它的那个角色**走（K4 语义）—— 角色转到哪，字就转到哪。
 ##   颜色则由调用方传进来（= 该角色自己的画笔颜色，每个角色一份）。
 ## ★_对齐★ = K4 的 fields.align（left / center / right）。
-##   用 draw_string 的 HORIZONTAL_ALIGNMENT_* 表达：Godot 会以 p_position 为
-##   左/中/右基准排版，与 K4 下拉框的三种语义一一对应。
+##   语义：left → 文本左缘；center → 文本中心；right → 文本右缘 落在印章点上。
+##   ⚠ 实现上**不能**直接用 draw_string 的 HORIZONTAL_ALIGNMENT_*：
+##     Godot 在 width < 0 时会忽略 alignment（官方 issue #94394），
+##     实测三种对齐会画在完全相同的位置（全部左对齐）。
+##     所以这里把对齐值存进指令，绘制时由 烘焙器.文字对齐起点() 算起点。
 func 文字图章(_文本: String, _位置: Vector2, _字号: float, _颜色: Color,
 		_旋转: float = 0.0, _对齐: String = "center") -> void:
-	指令.append({ "t": "text", "s": _文本, "p": _位置, "z": _字号,
+	_加指令({ "t": "text", "s": _文本, "p": _位置, "z": _字号,
 		"c": _颜色, "r": _旋转, "a": _对齐 })
-	_脏 = true
 
 func 设置填充样式(_颜色: Color) -> void:
 	_填充样式 = _颜色
@@ -228,7 +320,7 @@ func 填充路径(_点: String) -> void:
 		_路径点 = PackedVector2Array()
 	else:
 		if _路径中 and _路径点.size() >= 3:
-			指令.append({ "t": "fillpath", "pts": _路径点, "c": _填充样式 })
+			_加指令({ "t": "fillpath", "pts": _路径点, "c": _填充样式 })
 		_路径中 = false
 		_路径点 = PackedVector2Array()
 	_脏 = true
@@ -262,23 +354,51 @@ func 取填充样式() -> Color:
 func 取画笔路径() -> String:
 	return _画笔路径
 
+## 屏幕上**正在画**的任务数（= 显示批次）。
+##   写入批次（工作指令）在提交之前不计入 —— 那是"还没呈现出来"的内容。
 func 指令数() -> int:
 	return 指令.size()
 
+## 正在累积、还没提交的那一批的任务数（只有"擦除 + 重画"模式才用得到）
+func 工作指令数() -> int:
+	return 工作指令.size()
+
 func 已烘焙() -> bool:
-	return _底图 != null
+	return _底图 != null or _工作底图 != null
 
 
 # -----------------------------------------------------------------------------
 # 每帧：最多重绘一次 + 需要时烘焙
 # -----------------------------------------------------------------------------
 func _process(_delta: float) -> void:
+	# 写入批次"画到一个稳定点"了 → 整批**原子替换**显示（见文件头《批次 / 双缓冲》）。
+	#   两条路径：
+	#     ① 下一次"全部擦除"到来（在 全部擦除() 里提交）—— "每帧擦除重画"走这条，
+	#        延迟只有一帧；
+	#     ② 连续 提交空闲帧数 帧没有新指令 —— "只擦不画 / 画完就不动了"走这条。
+	if _待提交 and Engine.get_process_frames() >= _最后写入帧 + 提交空闲帧数:
+		_提交()
 	if _脏:
 		_脏 = false
 		queue_redraw()
-	if not _烘焙中 and 指令.size() >= 烘焙阈值:
+	# 烘焙**当前正在累积的那一批**：擦除+重画模式下是写入批次，累加模式下是显示批次。
+	var 待烘: Array[Dictionary] = 工作指令 if _待提交 else 指令
+	if not _烘焙中 and 待烘.size() >= 烘焙阈值:
 		# 走 call() 点火：_烘焙() 是协程，直接调会触发 MISSING_AWAIT 警告
 		call("_烘焙")
+
+## 把写入批次**原子替换**成显示批次（乒乓互换，零拷贝）。
+##   互换后写入批次就是"上一次显示"的那个数组，清空即可继续累积。
+func _提交() -> void:
+	var 旧指令 := 指令
+	指令 = 工作指令
+	工作指令 = 旧指令
+	工作指令.clear()
+	_底图 = _工作底图
+	_工作底图 = null
+	_待提交 = false
+	_批次号 += 1
+	_脏 = true
 
 
 func _确保烘焙视口() -> void:
@@ -297,21 +417,37 @@ func _确保烘焙视口() -> void:
 
 
 func _烘焙() -> void:
-	if _烘焙中 or 指令.size() < 烘焙阈值:
+	# 烘焙"当前正在累积的那一批"：
+	#   擦除+重画模式 → 写入批次（_待提交 为真）
+	#   累加模式       → 显示批次（旧行为）
+	var 目标: Array[Dictionary] = 工作指令 if _待提交 else 指令
+	if _烘焙中 or 目标.size() < 烘焙阈值:
 		return
 	_烘焙中 = true
+	var 版 := _批次号
 	_确保烘焙视口()
-	_烘焙器.底图 = _底图
-	_烘焙器.待画 = 指令.duplicate()
+	_烘焙器.底图 = _工作底图 if _待提交 else _底图
+	_烘焙器.待画 = 目标.duplicate()
 	_烘焙器.queue_redraw()
 	# 等这一帧真正画完，SubViewport 的纹理才是最新的
 	await RenderingServer.frame_post_draw
+	# ★异步期间可能被擦除 / 提交过★（_批次号 变了）→ 这次烘焙的内容已经过期，
+	#   直接丢弃。否则会把"上一批"的画面写回底图，出现回退 / 闪烁。
+	if 版 != _批次号:
+		_烘焙器.待画 = []
+		_烘焙中 = false
+		_脏 = true
+		return
 	var 图 := _烘焙视口.get_texture().get_image()
 	if 图 != null and 图.get_width() > 0 and 图.get_height() > 0:
-		_底图 = ImageTexture.create_from_image(图)
-		指令.clear()
+		var 新底 := ImageTexture.create_from_image(图)
+		if _待提交:
+			_工作底图 = 新底
+		else:
+			_底图 = 新底
+		目标.clear()
 		_烘焙器.待画 = []
-		_烘焙器.底图 = _底图
+		_烘焙器.底图 = 新底
 	_烘焙中 = false
 	_脏 = true
 
@@ -354,23 +490,22 @@ func _画文字(_项: Dictionary) -> void:
 	var 号 := int(roundf(float(_项.get("z", 0.0))))
 	if 号 <= 0:
 		return
-	# K4 的图章对齐（fields.align）→ Godot 的水平对齐
-	var 对 := String(_项.get("a", "center")).to_lower()
-	var 横 := HORIZONTAL_ALIGNMENT_CENTER
-	if 对 == "left":
-		横 = HORIZONTAL_ALIGNMENT_LEFT
-	elif 对 == "right":
-		横 = HORIZONTAL_ALIGNMENT_RIGHT
+	# ★K4 的图章对齐（fields.align = left / center / right）★
+	#   注意：**不能**把对齐交给 draw_string 的 alignment 参数 —— Godot 在
+	#   `width < 0` 时会忽略它（官方 issue #94394），三种对齐全按左对齐画。
+	#   统一做法：先算出对齐后的起点，再一律用左对齐画。
+	var 起 := 烘焙器.文字对齐起点(String(_项["s"]), _项["p"], 号,
+		String(_项.get("a", "center")))
 	var 位: Vector2 = _项["p"]
 	var 转: float = _项.get("r", 0.0)
 	if is_zero_approx(转):
-		draw_string(ThemeDB.fallback_font, 位, _项["s"],
-			横, -1, 号, _项["c"])
+		draw_string(ThemeDB.fallback_font, 起, _项["s"],
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 号, _项["c"])
 		return
 	# 以印章点为原点旋转（文字的旋转中心就是印下去的那个点）
 	draw_set_transform(位, 转, Vector2.ONE)
-	draw_string(ThemeDB.fallback_font, Vector2.ZERO, _项["s"],
-		横, -1, 号, _项["c"])
+	draw_string(ThemeDB.fallback_font, 起 - 位, _项["s"],
+		HORIZONTAL_ALIGNMENT_LEFT, -1, 号, _项["c"])
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 func _画图章(_项: Dictionary) -> void:

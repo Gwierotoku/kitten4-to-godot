@@ -55,29 +55,42 @@ const K4_舞台高 := 360.0
 const K4_半宽 := 240.0
 const K4_半高 := 180.0
 
-# K4 Ultra 的 warp 预算（先到先得）
-const K4_WARP_ITERS := 20000
-const K4_WARP_MS := 200
+# ★下面这几个常量**照抄 K4 运行时的真实配置**★
+#
+#   出处：K4 Ultra 打包产物里 ConfigImpl 的默认值（**运行时**那一套，它被
+#   解释器直接取用：`M.entity_max_clones_per_frame = e.entity_max_clones_per_frame`）：
+#       max_warp_iterations_per_interpreter_step: 30000
+#       warp_interpreter_millisecond_time_limit:  4
+#       per_entity_clone_limit:                   300
+#       entity_max_clones_per_frame:              300
+#
+#   ⚠ 以前我们用的是自己定的值（warp 段 200ms、克隆上限 512），实测后果：
+#     · 一个 warp 段能连跑 **200ms** 不让出 → 单帧 process 冲到 223ms（PICKCAT斗地主）；
+#     · 克隆数能超过 K4 的「每帧 300」与「每角色 300」上限 → 用户看到的
+#       **"克隆数量远超逻辑上该触发的数量"**。
+#   （另有一套 `legacy` 配置里 per_entity_clone_limit 是 512，但那套不作用于运行时。）
+const K4_WARP_ITERS := 30000
+const K4_WARP_MS := 4
 
 # ★每帧给**所有** warp 段共享的总预算（毫秒）★
 #   为什么必须有这一条：
-#     K4 是单线程的，同一时刻只有一个 warp 段在跑 —— 所以「每个 warp 段 100ms」
-#     在 K4 里就等于「整个程序 100ms」。
+#     K4 是单线程的，同一时刻只有一个 warp 段在跑 —— 所以「每个 warp 段 4ms」
+#     在 K4 里就等于「整个程序 4ms」。
 #     但 Godot 里几十个角色**同时**各有自己的 warp 段（各自一个协程），
-#     各自 100ms 会叠加成"几秒一帧" —— 表现就是 FPS=1、拖动窗口有拖影、
-#     而 Godot 的"处理时间"却只有几毫秒（因为时间花在协程连续跑上，不算 process）。
-#   所以这里再压一道：一帧里所有 warp 加起来最多跑这么多毫秒，超了就本帧内
-#   一律让出。8ms ≈ 半帧，够 warp 段快速推进，又不会把主线程占死。
+#     各自 4ms 会叠加成"几十毫秒一帧"。
+#   所以这里再压一道：一帧里所有 warp 加起来最多跑这么多毫秒，超了就本帧内一律让出。
 const K4_帧warp预算 := 16
 
-# ★K4 的克隆上限是**每个角色** 512，不是全场景★
-#   来源：K4 运行时配置 `per_entity_clone_limit: 512`
-#   （另一套运行时配置里是 300，还有 `entity_max_clones_per_frame: 300`）。
-#   而且**超限时 K4 会自动销毁最老的克隆体**（FIFO），不是拒绝克隆 ——
-#   见 K4 源码 original_id_2_clone_id_list[原体].push(新克隆体) 之后那段循环。
-#   以前我们写成"全场景 512 + 直接 return null"，两处都不对：
-#   多个角色一起克隆时，一个角色就把全场景配额吃光了。
-const K4_每角色克隆上限 := 512
+# ★克隆上限（K4 有**两道**，缺一不可）★
+#   ① 每角色**存活**的克隆体上限 300 —— 超了就自动销毁**最老的**（FIFO 淘汰），
+#      见 K4 源码 original_id_2_clone_id_list[原体].push(新克隆体) 之后那段循环；
+#   ② 每角色**每帧新建**的克隆体上限 300 —— 超了**静默拒绝**（不创建、不排队），
+#      见 K4 源码 clone_entity()：
+#        if (entities_cloned_times[e] > entity_max_clones_per_frame) → 整个 if 不进。
+#   以前我们只有 ①（而且值写成 512），**完全没有 ②** ——
+#   warp 里的循环克隆一帧就能创建几百上千个，K4 会卡在 300。
+const K4_每角色克隆上限 := 300
+const K4_每帧克隆上限 := 300
 
 # =============================================================================
 # 内层类：warp 上下文
@@ -142,6 +155,74 @@ var k4_pen_color: Color = Color.BLACK
 var k4_pen_size: float = 1.0
 var k4_last_pen_point := Vector2.ZERO  # 上一次落笔点（K4 舞台坐标）
 
+# =============================================================================
+# 【单例化搬迁】以下状态原先声明在「角色自带积木」里（它是角色实例继承链的一层）。
+#   架构改成「角色基类 → 角色变量 → 具体角色」+ 全局函数单例之后，
+#   这些"每个角色一份"的状态必须留在角色实例上 —— 方法体里统一写 `角色.xxx`。
+# =============================================================================
+# =============================================================================
+# 本文件新增的状态
+# =============================================================================
+var k4_flip_x: bool = false              # 左右翻转（K4「翻转」积木，axis=x）
+var k4_flip_y: bool = false              # 上下翻转（axis=y）
+var k4_modulate: Color = Color.WHITE      # 透明度 / 特效累积
+var k4_effect: Dictionary = {}            # 特效代码 -> 值（图形特效，见 设置特效）
+var k4_回答: Variant = ""                 # 最近一次「询问并等待」的回答
+var k4_选项内容: Variant = ""             # 最近一次「询问并选择」选中的**内容**（「选择的选项」积木读它）
+var k4_选项序号: float = 0.0              # 最近一次「询问并选择」选中的**序号**（从 1 开始）
+var k4_音量: float = 100.0                # 本角色的音量（0-100）
+var k4_say_label: Label = null            # 说话气泡
+var k4_音频: AudioStreamPlayer = null     # 本角色的声音播放器
+var k4_图层: int = 0                      # K4 图层序（越大越靠前）
+var k4_列表显示: Dictionary = {}          # 列表名 -> true（监视器开关，仅记录）
+# ★K4 的「显示 / 隐藏 变量」和「排行榜」★——K4 会在舞台角落画出监视器；
+#   这里只记录开关状态（想真画出来，读 k4_变量显示 / k4_列表显示 / k4_排行榜显示 自搭 UI）
+var k4_变量显示: Dictionary = {}          # 变量名（含云变量）-> true
+var k4_排行榜: String = ""                # 排行榜对应的云变量名
+var k4_排行榜显示: bool = false
+# 用户信息 —— K4 是联网云平台，这里本地化。要在 角色类.gd 里改就直接改这两个值。
+var k4_用户名: String = "玩家"
+var k4_用户ID: String = "local_player"
+# ★K4 的「设置 旋转模式为 …」★（自由旋转 / 左右翻转 / 不旋转）
+#   实测 fields.rotation_type = "0" | "1" | "2"，映射见 设置旋转模式()
+var k4_rotation_style: String = "free"
+# ★K4 的「设置 此角色 可拖动 / 不可拖动」★（实测 fields.draggable = "0" | "1"）
+var k4_draggable: bool = false
+var _k4拖拽中: bool = false
+# 询问界面（第一次「询问并等待」时惰性创建）
+var _询问层: CanvasLayer = null
+var _询问问题: Label = null
+var _询问输入: LineEdit = null
+var _询问按钮: Button = null
+## 角色在 K4 坐标系里的包围盒（用当前造型的贴图尺寸估）
+##
+## ★同一帧内只算一次，结果缓存★
+##   为什么必须缓存：K4 的碰撞是"每个角色去问别人碰没碰到"，
+##   一轮下来就是 O(N²)。`大陆漂移学说` 里克隆体堆到 512 个，
+##   512 × 512 ≈ 26 万次包围盒计算 —— 每帧 260ms，正好把帧率压到 1
+##   （实测 `--fixed-fps 60 --quit-after 300` 要 70 秒）。
+##   K4/Scratch 的 `touching` 走的是渲染器的空间索引，不是朴素两两比较；
+##   这里用"每帧一算 + 缓存"把 N² 次计算压成 N 次，够用了。
+var _包围盒缓存: Rect2 = Rect2()
+var _包围盒帧号: int = -1
+## ============================================================================
+## 画笔颜色：★K4 用的是 HSL，不是 HSV★
+## ============================================================================
+## 用户明确指出：K4 的颜色是 HSL —— hmax 360 / smax 100 / lmax 100 / alphamax 100。
+## K4 内部的 `_hueToHex(h)` 也印证了这点（里面写死 s=1, l=0.5 —— 纯色相 + 满饱和 + 中亮度）。
+##
+## ⚠ 所以**必须自己维护 HSL 四个分量**：
+##   Godot 的 Color 内部是 RGB，而 `Color.h/s/v` 是 **HSV**，和 K4 的 HSL 不是一回事。
+##   以前这里用的是 `Color.from_hsv` ——「设置画笔 亮度 50」被当成 HSV 的 V，
+##   而 K4 的 L=50 是中灰、V=50 是暗色，整整差一档。
+##
+##   值域（K4 语义）：h 0~360、s 0~100、l 0~100、a 0~100（100 = 完全不透明）
+##   初始值 = 黑（`self_set_pen_color` 的默认就是 #000000）
+var k4_笔_h: float = 0.0
+var k4_笔_s: float = 0.0
+var k4_笔_l: float = 0.0
+var k4_笔_a: float = 100.0
+
 # ★克隆体的"出生保护帧"★
 #   K4/Scratch 里克隆体创建后，它的 drawable 要**下一帧**才建立，
 #   在那之前 touching（碰到角色）一律返回 false。
@@ -152,6 +233,9 @@ var k4_last_pen_point := Vector2.ZERO  # 上一次落笔点（K4 舞台坐标）
 #   朝左右飞 50px 还在它的橙色翼里）—— 用户实测的"时好时坏"就是这个。
 #   普通角色这里是 0，永远不触发保护。
 var k4_出生帧: int = 0
+
+## 「删除此克隆体」的**延迟删除帧号**（-1 = 没有待删）。见 删除自己()。
+var _k4待删帧: int = -1
 
 # =============================================================================
 # 初始化
@@ -198,8 +282,10 @@ func _ready() -> void:
 
 func _process(_delta: float) -> void:
 	# 计时器累加已移到 autoload `K4Timer`（全作品一份，见 全局/计时器.gd）。
-	# 这里刻意留空：以前每个角色/克隆体各跑一份 _process 累加，纯属白烧 CPU。
-	pass
+	# 这里只剩"延迟删除"这一件事 —— 见 删除自己() 的注释。
+	if _k4待删帧 >= 0 and Engine.get_process_frames() > _k4待删帧:
+		_k4待删帧 = -1
+		queue_free()
 
 # =============================================================================
 # warp 上下文 / 让出点
@@ -250,8 +336,30 @@ func 一步(_ctx: WarpCtx) -> void:
 	#
 	#   为什么以前没暴露：只有当**同一个角色有多个协程、其中一个把它删了**
 	#   的时候才会触发 —— 射击生存的克隆体正好有 2~4 个「当作为克隆体启动」脚本。
+	# ★节点可能已经不在场景树里了★
+	#   克隆体被「删除克隆体」释放、或切屏时节点被移走之后，它的**其它协程**
+	#   还会再恢复一轮 —— 那时 `get_tree()` 是 null，而
+	#   `await get_tree().process_frame` 会直接报
+	#     Invalid access to property or key 'process_frame' on a base object of type 'null instance'
+	#   （用户实测：切屏时正好崩在这一行）。
+	#   这时标记取消并**不 await** 直接返回：循环末尾的 `if ctx._已取消: break`
+	#   会收尾，而且不会卡死（每次进来都立即返回）。
+	# ★必须先确认"自己这个节点还活着"★
+	#   `get_tree()` 在节点**已被释放**（previously freed）时，**这一行自己就会报**
+	#     Parameter "data.tree" is null.
+	#   —— 它的实现要去读节点内部的 tree 指针，而那个对象已经没了。
+	#   实测琪露诺：返回主菜单时刷出 **132 条**这个错误，全指向这一行。
+	#   （以前写的是"先 get_tree() 再判 null"，那条路对"已释放"根本走不到：
+	#     `self` 都没了，取 tree 就已经是错的。）
+	#   所以顺序必须是：先 is_instance_valid(self) → 再 get_tree() → 再判 null。
+	if not is_instance_valid(self):
+		return
+	var 树 := get_tree()
+	if 树 == null:
+		_ctx._已取消 = true
+		return
 	if _ctx._已取消:
-		await get_tree().process_frame
+		await 树.process_frame
 		return
 	if _ctx.depth > 0:
 		var 本帧 := Engine.get_process_frames()
@@ -259,15 +367,64 @@ func 一步(_ctx: WarpCtx) -> void:
 			_warp帧号 = 本帧
 			_warp帧起点 = Time.get_ticks_msec()
 		var 本帧已用 := Time.get_ticks_msec() - _warp帧起点
-		if _ctx.iters < K4_WARP_ITERS \
-				and Time.get_ticks_msec() - _ctx.started < K4_WARP_MS \
-				and 本帧已用 < K4_帧warp预算:
+		# ★warp 段要在**同一帧内**尽量跑完★（不要按"本段已跑 4ms"就让出）
+		#   这一条直接决定"数字/克隆是**一起出现**还是**逐个蹦出来 + 闪烁**"：
+		#   K4 的「一步执行」语义就是"这一帧里把这段跑完"。以前这里除了帧预算
+		#   还卡了一道 `K4_WARP_MS`（4ms）的**段级**让出 —— 于是一个"循环里克隆 14 个"
+		#   的 warp 段会跨 3~5 帧才跑完，画面上就是逐个显示（用户实测琪露诺：
+		#   `score_4/当接收到广播_fever_2.gd` 第 19 行 `进入warp` 之后每轮都克隆自己）。
+		#   现在只保留两道闸：单段迭代上限 + **本帧所有 warp 共享的总预算**。
+		#   后者照样拦得住"warp 里套永远循环"（跑满一帧立刻让出，不会占死主线程）。
+		if _ctx.iters < K4_WARP_ITERS and 本帧已用 < K4_帧warp预算:
 			_ctx.iters += 1
 			return
+		# ★预算用完 → 必须**真的让出一帧**★
+		#   这个函数的注释一直是这么写的，但这里以前只 `return` 了 ——
+		#   于是 warp（一步执行）里的 `重复执行（永远）` **永远不让出**：
+		#   一帧之内无限转 → 主线程被占死 → 窗口/编辑器"无响应"。
+		#   实测 PICKCAT斗地主（914 行的 while true 正好套在 warp 里）：
+		#   启动后 90 秒没有任何输出，只能杀进程。
 		_ctx.iters = 0
 		_ctx.started = Time.get_ticks_msec()
+		await 树.process_frame
 		return
-	await get_tree().process_frame
+	await 树.process_frame
+
+## ★让出点（生成器在"连续很多条语句都没有 await"的地方自动插一句）★
+##   生成出来的形式是 `await 角色.让出点(ctx)`。
+##
+##   语义：
+##     · **非 warp（depth == 0）→ 立即返回**，什么都不做。
+##       K4 里一个帽子的积木体本来就该在同一帧里一路跑到底，插检查点不能改变这个行为；
+##     · warp（一步执行）内 → 走 `一步()`，预算用完才真的让出一帧。
+##
+##   为什么需要它：实测 PICKCAT斗地主 的循环体 914 行里只有 9 个 `一步()`，
+##   两个让出点之间的长段（几十行 + 一堆画笔/列表调用）跑多久都不让出 →
+##   单帧 process 冲到 **223ms**，而 warp 预算是 16ms/帧。
+##   生成器按"密度 16"补点（见 emit.js 的 K4_让出密度）。
+func 让出点(ctx: WarpCtx) -> void:
+	if ctx == null:
+		return
+	if ctx.depth > 0:
+		await 一步(ctx)
+
+## ★安全让出一帧（角色版）★
+##
+##   ⚠ **绝对不要**直接写 `await get_tree().process_frame`：
+##     节点一旦被释放（`previously freed`），`get_tree()` **这一行自己就会报**
+##       Parameter "data.tree" is null.
+##     —— 它的实现要去读节点内部的 tree 指针，而那个对象已经没了。
+##     实测琪露诺：返回主菜单时刷出 **132 条**这个错误，全指向 `一步()` 里的 `get_tree()`。
+##
+##   返回 false = "自己已经没了"，调用方应立刻收尾返回（不要再碰任何成员）。
+func 让出帧() -> bool:
+	if not is_instance_valid(self):
+		return false
+	var 树 := get_tree()
+	if 树 == null:
+		return false
+	await 树.process_frame
+	return is_instance_valid(self)
 
 # =============================================================================
 # 变换（唯一写 position / rotation 的地方）
@@ -620,6 +777,55 @@ func 取余(_a: Variant, _b: Variant) -> Variant:
 #   求值失败返回 0.0（K4 里"算不出来就是 0"），只在编辑器里 push_warning，不影响运行。
 #   方法名带 `_k4` 前缀：K4 的标识符不可能以 `_` 开头，所以永远不会和用户变量/积木重名。
 # -----------------------------------------------------------------------------
+## ★把算式里的"变量名"换成它的数值★
+##
+##   K4 的「计算」积木允许在算式里**直接写变量名**（例：`(14.1249690204859-cr)/15.24`）。
+##   实测琪露诺：这样的算式直接送进 Expression 会报
+##     Invalid operands to operator -, float and String.
+##   （转换器把变量名写成了带引号的 `"cr"`，Expression 就当成字符串字面量了。）
+##
+##   规则（照 K4）：
+##     · 变量名（含中文名）→ 换成它的**数值**；
+##     · 值确实是字符串时 → 换成**带引号的字符串**（这样 `+` 仍能当拼接用）；
+##     · **函数名 / 常量名不碰**（sin、cos、pi、e、log、sqrt…）；
+##     · 认不出来的名字 → 换成 0（K4 里"没有值就是 0"），
+##       免得一个名字就让整个算式求值失败、连累后面所有项。
+func _k4算式换变量(文本: String) -> String:
+	const 保留 := ["pi", "e", "sin", "cos", "tan", "asin", "acos", "atan",
+		"k4sin", "k4cos", "k4tan", "k4asin", "k4acos", "k4atan",
+		"log", "ln", "sqrt", "abs", "exp", "floor", "ceil", "round", "sign",
+		"deg_to_rad", "rad_to_deg", "clamp", "pow", "min", "max", "fmod",
+		"true", "false", "not", "and", "or"]
+	var re := RegEx.new()
+	if re.compile("\"([^\"]*)\"|([A-Za-z_\\x{4e00}-\\x{9fa5}][A-Za-z0-9_\\x{4e00}-\\x{9fa5}]*)") != OK:
+		return 文本
+	var 出 := ""
+	var 上 := 0
+	for m in re.search_all(文本):
+		出 += 文本.substr(上, m.get_start() - 上)
+		上 = m.get_end()
+		var 名 := m.get_string(1)
+		if 名 == "":
+			名 = m.get_string(2)
+		if 保留.has(名):
+			出 += m.get_string()
+			continue
+		var 值: Variant = 取值(名)
+		if 值 is float or 值 is int:
+			出 += str(float(值))
+		elif 值 is String:
+			var sv := String(值)
+			if sv.is_valid_float():
+				出 += str(sv.to_float())
+			else:
+				出 += "\"" + sv.replace("\"", "\\\"") + "\""
+		elif 值 == null:
+			出 += "0.0"
+		else:
+			出 += str(_转数值(值))
+	出 += 文本.substr(上)
+	return 出
+
 func _k4算式求值(文本: String) -> float:
 	# ★K4 的三角函数用「度」，不是弧度★ —— 归一化时把函数名换成 k4 前缀，
 	#   这里再**展开**成 "sin(deg_to_rad(...))" 这种纯表达式。
@@ -632,7 +838,9 @@ func _k4算式求值(文本: String) -> float:
 	#     吻合到 1e-12 —— 误差就是这么来的。
 	#   ⚠ Expression **没有** add_function（那是 Godot 3 之外不存在的 API，我一开始记错了），
 	#     所以只能做文本展开。反三角是**返回度**，用 rad_to_deg 包一层。
-	var s := _k4三角展开(_k4算式归一(文本))
+	# ★先把算式里的"变量名"换成数值★（K4 的「计算」允许直接写变量名）
+	#   顺序：换变量 -> 归一化（全角/函数/数字浮点）-> 三角展开
+	var s := _k4三角展开(_k4算式归一(_k4算式换变量(文本)))
 	if s.strip_edges() == "":
 		return 0.0
 	var e := Expression.new()
@@ -680,6 +888,24 @@ func _k4算式归一(文本: String) -> String:
 	var re正 := RegEx.new()
 	if re正.compile("(?<![A-Za-z0-9_])(sin|cos|tan)(?![A-Za-z0-9_])") == OK:
 		t = re正.sub(t, "k4$1", true)
+	# ★把整数字面量全部变成浮点★（必须放在最后一步）
+	#
+	#   为什么必须这么干：Godot 的 `Expression` 里 **`5/64` 是整除 = 0**，
+	#   而 K4/JS 里是 0.078125。实测最小用例 `运算 (2).bcm4`：
+	#     算式  1+2-4*6+(3+2)/8^2+cos(65)
+	#     我们  -20.5773817382593
+	#     K4    -20.4992567382593
+	#     差    -0.078125  ← 正好是 (3+2)/8^2 = 5/64 被整除成 0 的那一项
+	#   单项验证（Expression 直接跑）：
+	#     `(3+2)/64` → 0        ★错★
+	#     `8**2`     → 64       ✓ 幂本身没问题
+	#     `5/8**2`   → 0        ★错★
+	#   把数字写成 `1.0` / `64.0` 之后，`/` 就是浮点除法，与 K4 一致。
+	#   （后面的 `(?![0-9.])` 保证不会破坏已有的 `1.5` 或再重复加 `.0`；
+	#     前面的 `(?<![0-9A-Za-z_.])` 保证不会碰 `pi2` 这类标识符里的数字。）
+	var re数 := RegEx.new()
+	if re数.compile("(?<![0-9A-Za-z_.])([0-9]+)(?![0-9.])") == OK:
+		t = re数.sub(t, "$1.0", true)
 	return t
 
 ## 把归一化后的 k4sin(...) / k4asin(...) 等**展开**成纯表达式：
@@ -922,8 +1148,28 @@ func _节点匹配(_节点: Node, _名: String) -> bool:
 #   Godot 只好把它改成 @Node2D@123 —— 实测 克隆体测试 的 57 个克隆里
 #   一半叫 @Node2D@N，调试器/编辑器里完全看不懂谁是谁。
 static var _克隆序号: int = 0
+# ★「每角色每帧克隆上限」用的计数★（见 K4_每帧克隆上限 的注释）
+static var _克隆帧号: int = -1
+static var _克隆本帧次数: Dictionary = {}
 
 func 克隆自己() -> Node:
+	# ★K4 的「每实体每帧克隆上限」：超了就**静默拒绝**★
+	#   K4 源码 clone_entity()：
+	#     if (entities_cloned_times[e] > entity_max_clones_per_frame) → 整个 if 不进
+	#     即：不创建、不排队、不删旧的，直接什么都不做。
+	#   为什么必须照抄：warp 里的循环克隆一帧能创建几百上千个，而 K4 会卡在 300 ——
+	#   不补这一道，作品里的克隆数就会**远超逻辑上该触发的数量**。
+	var 本帧 := Engine.get_process_frames()
+	if _克隆帧号 != 本帧:
+		_克隆帧号 = 本帧
+		_克隆本帧次数.clear()
+	var 我 := get_instance_id()
+	var 本帧已克隆 := int(_克隆本帧次数.get(我, 0))
+	if 本帧已克隆 >= K4_每帧克隆上限:
+		return null
+	_克隆本帧次数[我] = 本帧已克隆 + 1
+	# 记下克隆开始时刻 —— 结束时要把这段耗时从 warp 预算里扣掉（见函数末尾的注释）
+	var 克隆开始 := Time.get_ticks_msec()
 	var 新体 := duplicate(DUPLICATE_USE_INSTANTIATION)
 	if 新体 == null:
 		return null
@@ -955,6 +1201,10 @@ func 克隆自己() -> Node:
 	# 这里按属性名逐个搬一遍，语义就是"完全继承当前状态"。
 	# ── 第 1 次搬状态（入树**前**）──
 	_克隆搬状态(体)
+	# ★帽子的"运行时状态"要清掉★（见 帽子基类.重置运行状态 的注释）
+	#   duplicate() 把原体帽子的 `_运行中` / `_待触发` / `_ctx` 也复制过来了：
+	#   不清的话克隆体会"替原体跑一轮事件"，或者自己的帽子被"不重入"永远挡住。
+	_重置帽子状态(体)
 	# 出生保护：这一帧（以及下一帧）不参与碰撞，等价于 Scratch 的
 	# "克隆体 drawable 还没建立" 那一帧。见 k4_出生帧 的注释。
 	# ⚠ 用 set() 而不是 `体.k4_出生帧 = ...`：体的静态类型是 Node2D，
@@ -967,9 +1217,22 @@ func 克隆自己() -> Node:
 	#   如果只搬一次（入树前），那次 _ready 会把刚搬进去的值**全部覆盖回初值**：
 	#   实测 原体 _v_y=500 → 克隆出来却是 74（初值），看起来就像"克隆体不继承角色变量"。
 	#   所以顺序必须是：入树（让它自己 _ready 跑完）→ 再搬一次原体此刻的状态。
+	# ★★入树**之前**就要把它标成克隆体★★
+	#
+	#   因为 `add_sibling()` 会**立刻触发克隆体自己的 `_ready()`**，而 `帽子基类` /
+	#   `帽子_广播` 的 `_ready` 里要判断 `角色.k4_is_clone` 来决定"要不要注册监听、
+	#   要不要响应事件"。以前这一步放在入树**之后** →
+	#   克隆体的 `_ready` 看到的还是 `false` → **每个克隆体都注册了广播监听** →
+	#   广播一来"克隆体又克隆自己" → **指数增长**
+	#   （实测琪露诺：连发 30 次「fever」→ 克隆数从 151 涨到 950+、对象数破 11548）。
+	#
+	#   注意入树后还要**再标一次**：`_克隆搬状态()` 会把 `k4_` 前缀的成员（含
+	#   `k4_is_clone` / `k4_clone_of`）从原体一起搬过来，会把这里的值覆盖掉。
+	体.set("k4_is_clone", true)
+	体.set("k4_clone_of", self)
 	add_sibling(体)
 	_克隆搬状态(体)
-	# 关系字段放到最后设：它们是"生命周期"标记，不能被上面的搬状态覆盖
+	# 关系字段放到最后再确认一次：它们是"生命周期"标记，不能被上面的搬状态覆盖
 	if 体.has_method("标为克隆"):
 		体.标为克隆(self)
 	else:
@@ -983,7 +1246,36 @@ func 克隆自己() -> Node:
 		var 最老 = k4_clones.pop_front()
 		if 最老 != null and is_instance_valid(最老):
 			最老.queue_free()
+	# ★把"克隆本身的耗时"从 warp 预算里扣掉★
+	#
+	#   为什么必须扣：Godot 的 `duplicate()` 要**深拷贝整棵节点树 + 重新实例化子场景**
+	#   （角色的帽子都是子节点），比 K4/Scratch 的克隆慢 1~2 个数量级 —— 一次克隆
+	#   就可能吃掉几毫秒。而 K4 里"一步执行"的循环**经常是"每轮克隆一个"**
+	#   （琪露诺的 `score_4/当接收到广播_fever_2`：`进入warp` 之后循环 文字长度(fever) 次，
+	#     每轮 `克隆自己()` + `一步()`；`ice_1_/当接收到广播_特效` 同理 7~14 个）。
+	#   实测（_dev/kirino_check.gd）：不扣的话 8 个克隆会摊到 4~6 帧（20→22→23→24→26…），
+	#   画面上就是**数字/克隆逐个蹦出来 + 闪烁**；这正是用户报的第三个问题。
+	#
+	#   扣掉之后：克隆耗时不计入 warp 预算，warp 段能在**同一帧**把整轮克隆跑完
+	#   （整帧确实变长、会掉几帧，但画面是对的 —— 这正是 K4 的表现）。
+	#   `K4_WARP_ITERS` 那道迭代上限仍然在，所以"warp 里套永远循环"依旧会被拦住。
+	_warp帧起点 += (Time.get_ticks_msec() - 克隆开始)
 	return 体
+
+## 递归把克隆体身上所有帽子的"运行时状态"清回未启动
+##   （见 帽子基类.重置运行状态 的注释：duplicate() 会把 _运行中 / _待触发 / _ctx 一起复制）
+func _重置帽子状态(_节点: Node) -> void:
+	# ⚠ 这里**不能**写 `if _节点 is 帽子基类`：`角色基类` 与 `帽子基类` 会形成
+	#   **循环类型依赖** —— 运行时表现为启动时刷 700+ 条
+	#     Parse Error: Could not resolve class "角色自定义积木" / "帽子基类"
+	#   紧接着 autoload `全局变量.gd` 加载失败、整个工程起不来（实测琪露诺 755 条）。
+	#   ★特别阴的是：`--check-only` 单独检查每个文件都 OK★ —— 那种检查走的是
+	#   **编辑器类缓存**，看不出运行时的解析顺序问题。
+	#   改用"有没有这个方法"来判断（鸭子类型），类型依赖就解掉了。
+	if _节点.has_method("重置运行状态"):
+		_节点.call("重置运行状态")
+	for c in _节点.get_children():
+		_重置帽子状态(c)
 
 ## 把"原体（self）此刻的状态"搬到克隆体身上。搬两类成员：
 ##   · `k4_`        引擎胶水状态（位置 / 外观 / 特效 / 音频 / 图层 …）
@@ -1037,7 +1329,16 @@ func 删除自己() -> void:
 	#   AudioStreamPlaybackMP3，退出时报 "ObjectDB instances were leaked" +
 	#   "Resource still in use: res://音频/....mp3"。
 	_停本子树声音(self)
-	queue_free()
+	# ★不是立刻 queue_free，而是**下一帧再删**★
+	#   K4 的「删除此克隆体」在当帧仍会被画出来；而 Godot 的 queue_free()
+	#   在本帧末尾就把节点摘掉 → 那一帧什么都看不到。
+	#   实测 画笔图层与执行顺序测试 的数字显示器：克隆体的脚本正是
+	#   「当作为克隆体启动时 → 显示 → 删除克隆体」——一帧都不留，
+	#   于是 365 **一个数字都显示不出来**（K4 里是看得到的）。
+	#   这里只记一个"删除帧号"，由 _process 在再下一帧才真删，
+	#   保证"显示"的那一帧一定被渲染过。
+	_k4待删帧 = Engine.get_process_frames() + 1
+	set_process(true)
 
 ## 递归停掉本子树里所有 AudioStreamPlayer（删除角色/克隆体时清理音频资源）
 func _停本子树声音(_节点: Node) -> void:
@@ -1102,3 +1403,19 @@ func 克隆体数量() -> float:
 
 func 自己的名字() -> String:
 	return String(name)
+
+# =============================================================================
+# 输入入口：把「可拖拽」的鼠标事件转发给函数单例
+# =============================================================================
+#   单例化之后，"拖拽"这套逻辑住在 角色自带积木.拖拽输入(角色, _event) 里
+#   （它是积木实现，跟着单例走）。而 Godot 的输入回调必须挂在**角色节点**上 ——
+#   而且回调不能带参数，所以这里做一层转发：把 self 传给单例。
+#
+#   ⚠ K4Func 是 autoload（函数单例）。理论上极早期可能还没就绪 → 判空返回。
+#   ⚠ 只有 `k4_draggable` 为真的角色才吃这个事件（K4 的「设置可拖拽」）。
+func _input(_event: InputEvent) -> void:
+	if not k4_draggable:
+		return
+	if K4Func == null:
+		return
+	K4Func.拖拽输入(self, _event)

@@ -16,7 +16,7 @@ class_name 帽子_屏幕切换
 extends 帽子基类
 
 func _ready() -> void:
-	await get_tree().process_frame
+	if not await 让出帧(): return
 	_已启动 = true
 	if _触发条件满足() and _本屏幕当前():
 		启动()

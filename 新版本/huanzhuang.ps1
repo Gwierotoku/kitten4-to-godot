@@ -12,66 +12,16 @@ param(
   [Parameter(Mandatory = $true)][string]$Bcm4,
   [Parameter(Mandatory = $true)][string]$Out,
   [int]$Frames = 300,
-  [switch]$SkipConvert,
-  [string]$NodePath,
-  [string]$GodotPath
+  [switch]$SkipConvert
 )
 
 $ErrorActionPreference = 'Continue'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
+$NODE = 'C:\Users\Administrator\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\node\bin\node.exe'
+$GODOT = 'C:\Users\Administrator\Desktop\Godot_v4.7.2-stable_win64.exe'
 
-# ---------------------------------------------------------------- tool lookup
-# No machine-specific absolute paths here: resolve node / Godot at runtime.
-# Override order:  -NodePath / -GodotPath  ->  $env:K4_NODE / $env:K4_GODOT
-#                  ->  PATH  ->  common install locations.
-function Resolve-NodeExe {
-  param([string]$Override)
-  if ($Override -and (Test-Path $Override)) { return (Resolve-Path $Override).Path }
-  if ($env:K4_NODE -and (Test-Path $env:K4_NODE)) { return $env:K4_NODE }
-  $cmd = Get-Command node -ErrorAction SilentlyContinue
-  if ($cmd) { return $cmd.Source }
-  foreach ($p in @(
-      "$env:ProgramFiles\nodejs\node.exe",
-      "${env:ProgramFiles(x86)}\nodejs\node.exe",
-      "$env:LOCALAPPDATA\Programs\nodejs\node.exe")) {
-    if (Test-Path $p) { return $p }
-  }
-  return $null
-}
-
-function Resolve-GodotExe {
-  param([string]$Override, [string]$StartDir)
-  if ($Override -and (Test-Path $Override)) { return (Resolve-Path $Override).Path }
-  if ($env:K4_GODOT -and (Test-Path $env:K4_GODOT)) { return $env:K4_GODOT }
-  $cmd = Get-Command godot -ErrorAction SilentlyContinue
-  if ($cmd) { return $cmd.Source }
-  # newest Godot_v*_win64.exe sitting next to the project or in the usual spots
-  $roots = New-Object System.Collections.ArrayList
-  foreach ($r in @($StartDir, (Split-Path -Parent $StartDir), "$env:USERPROFILE\Desktop",
-                   "$env:USERPROFILE\Downloads", 'D:\software', 'C:\Program Files')) {
-    if ($r -and (Test-Path $r)) { [void]$roots.Add($r) }
-  }
-  $found = @()
-  foreach ($r in $roots) {
-    $found += @(Get-ChildItem -Path $r -Filter 'Godot*win64*.exe' -Recurse -Depth 3 -File -ErrorAction SilentlyContinue)
-  }
-  $pick = $found |
-    Where-Object { $_.Name -notmatch 'console|mono' } |
-    Sort-Object { $_.Name } -Descending |
-    Select-Object -First 1
-  if ($pick) { return $pick.FullName }
-  return $null
-}
-
-$NODE  = Resolve-NodeExe  -Override $NodePath
-$GODOT = Resolve-GodotExe -Override $GodotPath -StartDir $here
-
-if (-not $NODE) {
-  throw 'node.exe not found. Install Node.js, or pass -NodePath <path>, or set $env:K4_NODE.'
-}
-if (-not $GODOT) {
-  throw 'Godot not found. Pass -GodotPath <path to Godot_v4.x-stable_win64.exe>, or set $env:K4_GODOT.'
-}
+if (-not (Test-Path $NODE)) { throw "Node not found: $NODE" }
+if (-not (Test-Path $GODOT)) { throw "Godot not found: $GODOT" }
 
 function Wait-Proc([System.Diagnostics.Process]$p, [int]$Seconds) {
   $deadline = (Get-Date).AddSeconds($Seconds)
@@ -179,6 +129,6 @@ try {
   Write-Host ''
   Write-Host ("  project : {0}" -f $proj)
   Write-Host ("  mapping : {0}" -f (Join-Path $proj '全局\积木映射.json'))
-  Write-Host ("  edit me : {0}   (never overwritten)" -f (Join-Path $proj '全局\角色类.gd'))
+  Write-Host ("  edit me : {0}   (never overwritten)" -f (Join-Path $proj '全局\函数单例.gd'))
 }
 finally { Pop-Location }

@@ -52,8 +52,8 @@
 class_name 帽子基类
 extends Node2D
 
-# 角色节点（角色的根节点脚本 extends 角色类）
-@onready var 角色: 角色类 = get_parent() as 角色类
+# 角色节点（角色的根节点脚本 extends 角色变量）
+@onready var 角色: 角色变量 = get_parent() as 角色变量
 
 # 本次运行的 warp 上下文（由 _上下文() 暴露给生成的 _积木主体()）
 var _ctx: 角色基类.WarpCtx = null
@@ -81,7 +81,10 @@ func _ready() -> void:
 	#   注册监听，事件直接丢 —— 实测「广播测试」工程就是这样（n3 永远收不到）。
 	#   注册本身不需要等任何东西，所以放在最前面。
 	_注册监听()
-	await get_tree().process_frame
+	# ⚠ 这里不能直接 `await get_tree().process_frame`：帽子被删/切屏移走后
+	#   （返回主菜单时大量发生）`get_tree()` 自己就会报 "Parameter data.tree is null."
+	if not await 让出帧():
+		return
 	_已启动 = true
 	if _触发条件满足():
 		启动()
@@ -164,7 +167,10 @@ func _积木主体() -> void:
 	# 基类实现刻意保留一个 await，让分析器判定"这是协程"：
 	#   → 子类覆写成协程不会被报 REDUNDANT_AWAIT
 	#   → `await _积木主体()` 永远合法
-	await get_tree().process_frame
+	# ⚠ 这里也必须走"安全让出"：没覆写的帽子如果已经被删，
+	#   `get_tree()` 自己就会报 "Parameter data.tree is null."
+	if not await 让出帧():
+		return
 
 # -----------------------------------------------------------------------------
 # 启动 / 重启（同步函数：点火后立刻返回，积木体在后台协程里跑）
@@ -272,6 +278,53 @@ func _结束运行() -> void:
 func _等本轮跑完() -> void:
 	while _运行中:
 		await _跑完
+
+## ★安全让出一帧（帽子版）★
+##   ⚠ **绝对不要**直接写 `await get_tree().process_frame`：
+##     帽子被删 / 切屏把它移走之后，`get_tree()` **这一行自己就会报**
+##       Parameter "data.tree" is null.
+##     （它的实现要读节点内部的 tree 指针，而那个对象已经没了。）
+##   返回 false = "自己已经没了"，调用方应立刻收尾返回。
+func 让出帧() -> bool:
+	if not is_instance_valid(self):
+		return false
+	var 树 := get_tree()
+	if 树 == null:
+		return false
+	await 树.process_frame
+	return is_instance_valid(self)
+
+## ★克隆出来的帽子：把"运行时状态"清回未启动★
+##   Godot 的 duplicate() 会把**脚本成员**一起复制（`_运行中` / `_待触发` / `_ctx` …），
+##   而帽子成员不叫 `k4_` 前缀，`_克隆搬状态()` 那条"只搬 k4_/_v_/_l_"的规则**管不到它们**。
+##   不清的话克隆体上的帽子有两类毛病：
+##     ① 原体当时 `_待触发 = true`（事件早到、还没补触发）→ 克隆体一出生就跑一遍
+##        **不属于它的**那轮事件（症状就是"首帧多发 / 克隆数远超逻辑"）；
+##     ② 原体当时 `_运行中 = true` → 克隆体的 `启动()` 被第一行"不重入"直接挡掉，
+##        该帽子永远不跑。
+##   由 `角色基类.克隆自己()` 在**入树之前**调用（入树会触发克隆体自己的 _ready）。
+## ★鸭子类型用的"标记取消"★
+##   为什么需要这个方法：`自带积木`（继承 `角色基类`）要去把帽子的 ctx 标成取消，
+##   但它**不能**写 `子 as 帽子基类` —— 那会形成
+##     自带积木 → 帽子基类 → 角色类 → 角色自定义积木 → 角色自带积木 → 角色基类
+##   的**循环类型依赖**：运行时启动时刷几十条
+##     Parse Error: Could not resolve class "角色类" / "角色自定义积木"
+##   紧接着 autoload `全局变量.gd` 加载失败、整个工程起不来（实测 56 条）。
+##   ★`--check-only` 单独检查每个文件都 OK，完全看不出这个问题★
+##   —— 所以这里统一改走"有没有这个方法"，类型依赖就解掉了。
+func 标记取消() -> void:
+	if _ctx != null:
+		_ctx._已取消 = true
+
+func 重置运行状态() -> void:
+	_ctx = null
+	_旧ctx = null
+	_运行中 = false
+	_已启动 = false
+	_触发次数 = 0
+	# 子类自己的"事件早到"缓存（帽子_广播 的 _待触发）——`in` 用来判断本类到底有没有这个成员
+	if "_待触发" in self:
+		set("_待触发", false)
 
 # 让子类判断角色是否可用
 func _角色可用() -> bool:

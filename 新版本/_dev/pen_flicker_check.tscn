@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://_pen_flicker.gd" id="1"]
+
+[node name="画笔闪烁统计" type="Node"]
+script = ExtResource("1")

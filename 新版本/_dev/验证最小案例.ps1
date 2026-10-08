@@ -1,4 +1,4 @@
-﻿# =============================================================================
+# =============================================================================
 # 验证最小案例.ps1  ——  对 _out 下的最小案例逐个跑「import + 探针」
 # =============================================================================
 # 用法（在 新版本 目录下）：
@@ -13,32 +13,10 @@
 # =============================================================================
 param(
 	[string[]]$案例 = @('函数返回值尝试', '克隆体测试', '画笔和嵌套循环测试', '碰撞测试', '射击生存'),
-	[int]$帧数 = 120,
-	[string]$GodotPath
+	[int]$帧数 = 120
 )
 
-# 不写死本机路径：优先 -GodotPath，其次 $env:K4_GODOT，再查 PATH 与常见位置。
-function Resolve-GodotExe {
-	param([string]$Override)
-	if ($Override -and (Test-Path $Override)) { return (Resolve-Path $Override).Path }
-	if ($env:K4_GODOT -and (Test-Path $env:K4_GODOT)) { return $env:K4_GODOT }
-	$cmd = Get-Command godot -ErrorAction SilentlyContinue
-	if ($cmd) { return $cmd.Source }
-	$found = @()
-	foreach ($r in @("$env:USERPROFILE\Desktop", "$env:USERPROFILE\Downloads", 'D:\software', 'C:\Program Files')) {
-		if (Test-Path $r) {
-			$found += @(Get-ChildItem -Path $r -Filter 'Godot*win64*.exe' -Recurse -Depth 3 -File -ErrorAction SilentlyContinue)
-		}
-	}
-	$pick = $found | Where-Object { $_.Name -notmatch 'console|mono' } | Sort-Object { $_.Name } -Descending | Select-Object -First 1
-	if ($pick) { return $pick.FullName }
-	return $null
-}
-
-$godot = Resolve-GodotExe -Override $GodotPath
-if (-not $godot) {
-	throw '未找到 Godot。请用 -GodotPath 指定 Godot_v4.x-stable_win64.exe，或设置 $env:K4_GODOT。'
-}
+$godot = 'C:\Users\Administrator\Desktop\Godot_v4.7.2-stable_win64.exe'
 $根 = Split-Path $PSScriptRoot -Parent
 $错误模式 = 'SCRIPT ERROR|Parse Error|stack overflow|Stack overflow|Invalid |Cannot |Trying to |Attempt to |nonexistent|null instance'
 

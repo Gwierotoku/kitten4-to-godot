@@ -50,6 +50,48 @@ function 读自带积木模板() {
 }
 
 /* ================================================================== */
+/* ★单例化的核心判定：一个方法"住在哪一侧"★                          */
+/* ================================================================== */
+/*   架构（用户定的）：
+ *     · 角色**实例**那一侧：角色基类 → 角色变量 → <角色名>.gd
+ *         —— 只放状态（k4_x / 画笔颜色 / 局部变量…）和引擎胶水
+ *            （_apply_transform / 进入warp / 找 / 新建上下文 / 算术运算 / 转数字…）
+ *     · 函数**单例**那一侧（autoload `K4Func`）：
+ *         角色自带积木（模板）→ 角色自定义积木 → 函数单例
+ *         —— 所有"积木实现"都在这里，第一参数永远是 `角色: 角色变量`
+ *
+ *   所以调用点分两种写法：
+ *     实现在单例上 → `K4Func.移动_步(角色, 10)` / `await K4Func.一步(角色, ctx)`
+ *     实现在基类上 → `角色.算术运算("add", a, b)` / `角色.新建上下文()`
+ *
+ *   判定依据 = "名字在不在**模板/自定义积木的方法表**里"，与 async.js 的
+ *   协程判定同一个思路（以实现在准，而不是靠人肉维护清单）。
+ */
+var FUNC_SINGLETON = 'K4Func';        // autoload 名（必须 ASCII）
+
+var _模板方法缓存 = null;
+function 模板方法集合() {
+  if (_模板方法缓存) return _模板方法缓存;
+  var 集 = {};
+  var 模板 = 读自带积木模板();
+  if (模板) {
+    var re = /^func[ \t]+([^ \t(]+)[ \t]*\(/gm;
+    var m;
+    while ((m = re.exec(模板)) !== null) 集[m[1]] = 1;
+  }
+  _模板方法缓存 = 集;
+  return 集;
+}
+
+/** 这个方法是不是"住在函数单例上"（模板里的自带积木 / 本工程的自定义积木） */
+function 走单例(em, 名) {
+  if (!名) return false;
+  if (模板方法集合()[名]) return true;
+  if (em && em.procNames && em.procNames[名]) return true;
+  return false;
+}
+
+/* ================================================================== */
 /* 1. 事件 -> 帽子                                                   */
 /* ================================================================== */
 
@@ -412,11 +454,37 @@ function staticKind(node) {
 var UUID_LIKE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
 /**
+ * ★K4 的「当前屏幕 / 下一屏 / 上一屏」★
+ *   `get_current_scene` / `get_sensing_current_scene` 的 `fields.scene` 有三种形态：
+ *     · 具体屏幕 id（resolveIRNames 已换回屏幕名）→ 屏幕名
+ *     · `__next_scene`  → **下一屏**
+ *     · `__prev_scene`  → **上一屏**
+ *     · `__current_scene` / 空 → 当前屏幕
+ *   ⚠ 以前一律返回 `K4Global.当前屏幕` —— 于是「切换到下一屏」变成"切换到自己"
+ *     （原地打转/切屏循环不动），实测 切屏与云变量持久化测试。
+ *   返回 null = 这个块不是屏幕类取值块（交调用方另作处理）。
+ */
+function 屏幕取值(node) {
+  if (!node || typeof node !== 'object') return null;
+  var t = node.type;
+  if (t !== 'get_current_scene' && t !== 'get_sensing_current_scene') return null;
+  var f = node.fields || {};
+  var s = f.scene !== undefined ? f.scene : (f.SCENE !== undefined ? f.SCENE : '');
+  s = String(s == null ? '' : s);
+  if (s === '__next_scene') return 'K4Global.下一屏幕()';
+  if (s === '__prev_scene') return 'K4Global.上一屏幕()';
+  if (s === '' || s === '__current_scene') return 'K4Global.当前屏幕';
+  if (!UUID_LIKE.test(s)) return gdStr(s);
+  return 'K4Global.当前屏幕';
+}
+
+/**
  * 求「屏幕」实参。K4 把目标屏幕放在 get_current_scene 影子的 scene 字段里。
  * 优先用那个名字；同一条路径也用于 check_screen。
  */
 function screenArg(em, argNode, fieldName, ctx) {
   // 1) 影子/块里有 scene 字段 -> 直接用（resolveIRNames 已把 uuid 换回屏幕名）
+  //    ⚠ 但 `__next_scene` / `__prev_scene` 这类**特殊值**不能当屏幕名用，交给 屏幕取值()
   var multi = [argNode];
   if (argNode && argNode.inputs) Object.keys(argNode.inputs).forEach(function (k) { multi.push(argNode.inputs[k]); });
   for (var i = 0; i < multi.length; i++) {
@@ -424,12 +492,20 @@ function screenArg(em, argNode, fieldName, ctx) {
     if (!nd || typeof nd !== 'object') continue;
     var f = nd.fields || {};
     var cand = f.scene !== undefined ? f.scene : (f.SCENE !== undefined ? f.SCENE : (f.screen !== undefined ? f.screen : undefined));
-    if (typeof cand === 'string' && cand !== '' && !UUID_LIKE.test(cand)) return gdStr(cand);
+    if (typeof cand === 'string' && cand !== '' && cand.indexOf('__') !== 0 && !UUID_LIKE.test(cand)) return gdStr(cand);
   }
   // 2) 显式字段
-  if (fieldName && !UUID_LIKE.test(fieldName)) return gdStr(fieldName);
-  // 3) get_current_scene -> 当前屏幕
-  if (argNode && argNode.type === 'get_current_scene') return 'K4Global.当前屏幕';
+  if (fieldName && fieldName.indexOf('__') !== 0 && !UUID_LIKE.test(fieldName)) return gdStr(fieldName);
+  // 3) get_current_scene -> 当前 / 下一屏 / 上一屏
+  var sp = 屏幕取值(argNode);
+  if (sp !== null) return sp;
+  if (argNode && argNode.inputs) {
+    var ks = Object.keys(argNode.inputs);
+    for (var j = 0; j < ks.length; j++) {
+      var sp2 = 屏幕取值(argNode.inputs[ks[j]]);
+      if (sp2 !== null) return sp2;
+    }
+  }
   if (argNode) return em.expr(argNode, ctx);
   return '""';
 }
@@ -529,10 +605,24 @@ function gdStr(s) {
     .replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t') + '"';
 }
 
+/* ★数值字面量：**整数优先**（与 K4/JS 的显示规则一致）★
+   K4（JS）里 5 的文本就是 "5"；而 GDScript 的 `str(5.0)` 是 "5.0" ——
+   生成 `5.0` 时，凡是"把数字当文本"的地方（列表监视器、拼接、比字符串）
+   都要额外绕一层。生成 int 字面量之后 `str()` 天然就是 "5"，列表/调试器里
+   看到的也是 5 而不是 5.0。
+
+   两条护栏（都很关键）：
+     ① **超出安全整数就退回 float 字面量** —— 斗地主里真有 `1e20` 这种数，
+        int64 装不下，GDScript 会直接报字面量越界；
+     ② **除法必须显式 float()** —— 否则 GDScript 的 `5 / 2` 是**整除 = 2**，
+        而 K4（JS）是 2.5。见 opCall 里 div 的分支。 */
 function gdNum(n) {
   var v = Number(n);
   if (!isFinite(v)) return '0.0';
-  if (Number.isInteger(v)) return String(v) + '.0';
+  if (Number.isInteger(v)) {
+    if (Math.abs(v) <= 9007199254740991) return String(v);   // 2^53-1 = JS 安全整数
+    return String(v) + '.0';
+  }
   return String(v);
 }
 
@@ -584,6 +674,7 @@ function Emitter(ir, opts) {
   this.tmpSeq = 0;
   this.loopSeq = 0;
   this.procDefs = collectProcDefs(ir);
+  this.procNames = procNames;          // 名字集合：判定"这个方法是不是自定义积木"
   this.usedProcs = {};
   this.awaitCache = {};      // procName -> 是否是协程
   this.协程 = 取协程方法集合();   // ★方法名 -> true 表示"实现里含 await"★
@@ -1115,12 +1206,12 @@ Emitter.prototype.expr = function (node, ctx) {
   }
   if (node.k === 'unknown') {
     // 屏幕相关的取值积木：直接落到运行时
-    if (node.type === 'get_current_scene') return 'K4Global.当前屏幕';
-    // ★sensing 分类的「当前场景」是**同一个语义**的孪生块★
-    //   K4 在 外观/侦测 两个分类里各放了一个"当前场景"，块类型不同
-    //   （get_current_scene / get_sensing_current_scene），含义都是"我现在在哪个屏幕"。
-    //   以前只认前一个，后一个落到下面 `return '0.0'` —— 拿它和屏幕名比较永远为假。
-    if (node.type === 'get_sensing_current_scene') return 'K4Global.当前屏幕';
+    //   ★「当前屏幕 / 下一屏 / 上一屏」都走这里★（看 fields.scene 里的特殊值，
+    //     见 屏幕取值() 的注释）。以前一律返回 `K4Global.当前屏幕`，于是
+    //     「切换到下一屏」变成"切换到自己" —— 切屏原地打转（实测 切屏与云变量持久化测试）。
+    //   sensing 分类的「当前场景」是同一语义的孪生块（块类型不同），一起处理。
+    var 屏值 = 屏幕取值(node);
+    if (屏值 !== null) return 屏值;
     if (node.type === 'check_screen') {
       var cs = node.inputs || {};
       var cf = node.fields || {};
@@ -1169,7 +1260,7 @@ Emitter.prototype.opCall = function (node, ctx) {
       // 以前对 '?' 是**原样返回**的 —— phi 转换器里
       //   `列表取值_特殊(输入,"first",1.0) / 1000.0`
       // 就是这么炸的（而且那行还被帽子误触发提前跑到了）。
-      if (want === 'n') return '角色.转数字(' + src + ')';
+      if (want === 'n') return 'K4Func.转数字(角色, ' + src + ')';
       if (want === 's') return 'str(' + src + ')';
       return '角色.为真(' + src + ')';
     }
@@ -1180,6 +1271,28 @@ Emitter.prototype.opCall = function (node, ctx) {
     return '(' + src + ' != 0)';
   }
   var ARITH = { add: '+', sub: '-', mul: '*', div: '/', pow: '**' };
+
+  // ★IR 层合并优化★：`列表取值_特殊(文本分割(X, Y), 方式, N)` → 一步 `角色.文本分割取值(X, Y, 方式, N)`
+  //   真实作品里这个连用极多（斗地主 250+ 处），而且同一个大字符串常在**同一段里反复切**
+  //   （例：`文本分割(角色.回答(), " ")` 一行里出现 4 次，每次都新建一个几千项的数组）。
+  //   合并后由运行时 `文本分割取值()` 内部缓存 (文本, 分隔符) 的结果 —— 切一次、取多次；
+  //   顺带把生成代码的嵌套深度减了一层（编译期也省）。
+  //   ⚠ 语义不变：只是把"切分 + 取一项"合成一次调用，且运行端不暴露数组。
+  if (op === 'list_item_special' && args.length >= 3) {
+    var a0 = args[0];
+    // ★要剥掉一层 `listref_from` 壳★
+    //   "列表取值"那类积木在 core.js 里生成的是
+    //     list_item_special( listref_from([列表, 序号]), 方式, N )
+    //   而 expr() 会把 listref_from **透明地**展开成它的第一个参数 ——
+    //   所以生成出来的文本是 `列表取值_特殊(文本分割(...), "first", N)`，
+    //   但这里拿到的 args[0] 还是那个 listref_from 节点。
+    //   （第一版没剥壳，于是这个合并永远匹配不上：调试打印显示 a0.op=listref_from。）
+    if (a0 && a0.k === 'op' && a0.op === 'listref_from' && (a0.args || []).length >= 1) a0 = a0.args[0];
+    if (a0 && a0.k === 'op' && a0.op === 'str_split' && (a0.args || []).length >= 2) {
+      return 'K4Func.文本分割取值(角色, ' + this.expr(a0.args[0], ctx) + ', ' + this.expr(a0.args[1], ctx) +
+        ', ' + ex(1) + ', ' + ex(2) + ')';
+    }
+  }
   if (ARITH[op] && args.length >= 2) {
     if (op === 'add') {
       // K4 的 + 是「两侧都能当数字就相加，否则拼字符串」（"5" + 1 = 6，"a" + 1 = "a1"）。
@@ -1191,25 +1304,33 @@ Emitter.prototype.opCall = function (node, ctx) {
       return '(' + coerce(0, 'n') + ' + ' + coerce(1, 'n') + ')';
     }
     // - * / ** ：K4 一律按数值算
+    //   ★除法/取模必须显式 float()★
+    //   字面量改成整数之后（见 gdNum 的"整数优先"），GDScript 的 `5 / 2` 会变成
+    //   **整除 = 2**，而 K4（JS）是 2.5 —— 所以两边都包一层 float()。
+    //   （取模走 角色.取余()，内部本来就按 float 算。）
+    if (op === 'div') return '(float(' + coerce(0, 'n') + ') / float(' + coerce(1, 'n') + '))';
     return '(' + coerce(0, 'n') + ' ' + ARITH[op] + ' ' + coerce(1, 'n') + ')';
   }
   // K4 的取余结果符号**跟随除数**（-7 mod 3 = 2），GDScript 的 fmod 不是
-  if (op === 'mod' && args.length >= 2) return '角色.取余(' + ex(0) + ', ' + ex(1) + ')';
+  if (op === 'mod' && args.length >= 2) return 'K4Func.取余(角色, ' + ex(0) + ', ' + ex(1) + ')';
   if (op === 'neg' && args.length >= 1) return '(-' + coerce(0, 'n') + ')';
   if ((op === 'and' || op === 'or') && args.length >= 2) {
     return '(' + coerce(0, 'b') + ' ' + op + ' ' + coerce(1, 'b') + ')';
   }
   if (op === 'not' && args.length >= 1) return '(not ' + coerce(0, 'b') + ')';
   // K4 的 转文本(3.0) 得 "3"，GDScript 的 str(3.0) 得 "3.0"
-  if (op === 'to_string' && args.length >= 1) return '角色.转文本(' + ex(0) + ')';
-  if (op === 'to_number' && args.length >= 1) return '角色.转数字(' + ex(0) + ')';
+  if (op === 'to_string' && args.length >= 1) return 'K4Func.转文本(角色, ' + ex(0) + ')';
+  if (op === 'to_number' && args.length >= 1) return 'K4Func.转数字(角色, ' + ex(0) + ')';
   if (op === 'is_divisibleby' && args.length >= 2) {
     return '(fmod(' + coerce(0, 'n') + ', ' + coerce(1, 'n') + ') == 0.0)';
   }
   if (op === 'join') {
     if (args.length === 2) return '(str(' + ex(0) + ') + str(' + ex(1) + '))';
   }
-  if (op === 'str_len' && args.length >= 1) return 'str(' + ex(0) + ').length()';
+  // ★「文本长度」走 K4 的转文本语义（`角色.文本长度`），不要内联 str()★
+  //   K4 里数字 365 的文本是 "365"（长度 3），而 str(365.0) 是 "365.0"（长度 5）。
+  //   实测 画笔图层 的数字显示器：`重复 (score 的长度) 次` 因此多跑两轮。
+  if (op === 'str_len' && args.length >= 1) return 'K4Func.文本长度(角色, ' + ex(0) + ')';
   if (op === 'list_len' && args.length >= 1) return ex(0) + '.size()';
   if (op === 'list_empty' && args.length >= 1) return ex(0) + '.is_empty()';
   if (op === 'list_contains' && args.length >= 2) return ex(0) + '.has(' + ex(1) + ')';
@@ -1236,13 +1357,13 @@ Emitter.prototype.opCall = function (node, ctx) {
     }
   }
   if (/^math_/.test(op) && op !== 'math_root_n' && op !== 'math_root') {
-    return '角色.数学函数(' + gdStr(op.slice(5)) + ', ' + ex(0) + ')';
+    return 'K4Func.数学函数(角色, ' + gdStr(op.slice(5)) + ', ' + ex(0) + ')';
   }
   if (/^is_/.test(op) && op !== 'is_divisibleby') {
-    return '角色.是否判断(' + gdStr(op.slice(3)) + ', ' + ex(0) + ')';
+    return 'K4Func.是否判断(角色, ' + gdStr(op.slice(3)) + ', ' + ex(0) + ')';
   }
-  if (op === 'coord_x') return '角色.坐标x()';
-  if (op === 'coord_y') return '角色.坐标y()';
+  if (op === 'coord_x') return 'K4Func.坐标x(角色)';
+  if (op === 'coord_y') return 'K4Func.坐标y(角色)';
 
   // listref_from(VAR, A)：列表引用节点，等价于「取这个名字的列表」
   if (op === 'listref_from') {
@@ -1278,7 +1399,7 @@ Emitter.prototype.opCall = function (node, ctx) {
   if (op === 'join' && args.length > 2) {
     var acc = this.expr(args[args.length - 1], ctx);
     for (var q = args.length - 2; q >= 0; q--) {
-      acc = '角色.连接(' + this.expr(args[q], ctx) + ', ' + acc + ')';
+      acc = 'K4Func.连接(角色, ' + this.expr(args[q], ctx) + ', ' + acc + ')';
     }
     return acc;
   }
@@ -1389,10 +1510,10 @@ Emitter.prototype.call = function (target, m, argStrings, ctx) {
         /(角色\.转数字\(|float\()/.test(文本);
       if (!已转过 && !像数值表达式) {
         if (想要 === 's' && !是字符串字面量) {
-          val = '角色.转文本(' + val + ')';
+          val = 'K4Func.转文本(角色, ' + val + ')';
           this.report.实参类型转换.push(m.name + ' 第' + (序号 + 1) + '个实参 → String');
         } else if (想要 === 'f' && !是数字字面量) {
-          val = '角色.转数字(' + val + ')';
+          val = 'K4Func.转数字(角色, ' + val + ')';
           this.report.实参类型转换.push(m.name + ' 第' + (序号 + 1) + '个实参 → float');
         } else if (想要 === 'b' && !是布尔字面量) {
           val = '角色.为真(' + val + ')';
@@ -1402,7 +1523,15 @@ Emitter.prototype.call = function (target, m, argStrings, ctx) {
     }
     list.push(val);
   }
-  var src = target + '.' + m.name + '(' + list.join(', ') + ')';
+  // ★单例化：实现在「函数单例」上的方法，调用点写成 K4Func.名(角色, 实参…)★
+  //   target 就是"这次跑在哪个角色上"（通常是 `角色`，跨角色时是 `角色.找("名字")`），
+  //   它成为单例方法的**第一个实参**。
+  var 目标名 = target;
+  if (走单例(this, m.name)) {
+    目标名 = FUNC_SINGLETON;
+    list.unshift(target);
+  }
+  var src = 目标名 + '.' + m.name + '(' + list.join(', ') + ')';
   // ★只对**真正是协程**的方法写 await★（用户要求 + Godot 的 REDUNDANT_AWAIT 警告）
   //
   //   判定依据是 runtime 里的**实现**是否含 await（lib/k4/async.js 静态扫描 +
@@ -1430,13 +1559,38 @@ Emitter.prototype.stmtLines = function (stmt, ctx, indent) {
     return pad + '# 原积木: ' + label + (blockId ? ' @' + blockId : '');
   };
 
+  // ---- 画笔：图章 / 填充样式 / 填充路径 ----
+  //   ⚠ 这几个 IR **不带 `op` 字段**（`{k:'pen_stamp'}` / `{k:'fill_style'}` / `{k:'fill_path'}`），
+  //     所以 opCall 那条路（上面的 ARG 表）**根本不会处理它们** —— 必须在这里生成。
+  //     以前这里一个分支都没有：`image_stamp` / `set_fill_style` / `set_pen_path`
+  //     三个块全部掉进 default，生成的是"未支持的语句积木"桩 ——
+  //     实测 `空白作品.bcm4` 里有 8 处「设置当前为填充」+ 4 处「设置填充样式」，
+  //     生成代码里**一处都没有**，这才是"画笔填充功能没法用"的真正原因
+  //     （不是块映射错，是这里压根没接线）。
+  if (k === 'pen_stamp') {
+    out.push(note('图章', stmt.blockId));
+    out.push(pad + 'K4Func.图章(角色)');
+    return out;
+  }
+  if (k === 'fill_style') {
+    out.push(note('设置填充样式', stmt.blockId));
+    out.push(pad + 'K4Func.设置填充样式(角色, ' + this.expr(stmt.value, ctx) + ')');
+    return out;
+  }
+  if (k === 'fill_path') {
+    var 起 = String(stmt.point || 'start_point').toLowerCase().indexOf('start') >= 0;
+    out.push(note('设置当前为填充 ' + (起 ? '起点' : '终点'), stmt.blockId));
+    out.push(pad + 'K4Func.设置填充路径(角色, "' + (起 ? 'start_point' : 'end_point') + '")');
+    return out;
+  }
+
   // —— 控制流 ——
   if (k === 'forever') {
     out.push(pad + 'while true:');
     this.loopDepth = (this.loopDepth || 0) + 1;
     out = out.concat(this.body(stmt.body, ctx, pad + '    '));
     this.loopDepth--;
-    out.push(pad + '    await 角色.一步(ctx)');
+    out.push(pad + '    await K4Func.一步(角色, ctx)');
     // ★被取消的协程必须**退出循环**★
     //   `一步()` 在 `_ctx._已取消` 时只是"让出一帧再返回"，循环会接着跑下一轮 ——
     //   实测：屏幕切走（或「停止」积木）之后，计数/克隆还在涨。
@@ -1453,7 +1607,7 @@ Emitter.prototype.stmtLines = function (stmt, ctx, indent) {
     this.loopDepth = (this.loopDepth || 0) + 1;
     out = out.concat(this.body(stmt.body, ctx, pad + '    '));
     this.loopDepth--;
-    out.push(pad + '    await 角色.一步(ctx)');
+    out.push(pad + '    await K4Func.一步(角色, ctx)');
     // ★被取消的协程必须**退出循环**★
     //   `一步()` 在 `_ctx._已取消` 时只是"让出一帧再返回"，循环会接着跑下一轮 ——
     //   实测：屏幕切走（或「停止」积木）之后，计数/克隆还在涨。
@@ -1468,7 +1622,7 @@ Emitter.prototype.stmtLines = function (stmt, ctx, indent) {
     this.loopDepth = (this.loopDepth || 0) + 1;
     out = out.concat(this.body(stmt.body, ctx, pad + '    '));
     this.loopDepth--;
-    out.push(pad + '    await 角色.一步(ctx)');
+    out.push(pad + '    await K4Func.一步(角色, ctx)');
     // ★被取消的协程必须**退出循环**★
     //   `一步()` 在 `_ctx._已取消` 时只是"让出一帧再返回"，循环会接着跑下一轮 ——
     //   实测：屏幕切走（或「停止」积木）之后，计数/克隆还在涨。
@@ -1484,7 +1638,7 @@ Emitter.prototype.stmtLines = function (stmt, ctx, indent) {
   if (k === 'wait_until') {
     out.push(note('等待直到', stmt.blockId));
     out.push(pad + 'while not ' + this.cond(stmt.cond, ctx) + ':');
-    out.push(pad + '    await 角色.一步(ctx)');
+    out.push(pad + '    await K4Func.一步(角色, ctx)');
     // ★被取消的协程必须**退出循环**★
     //   `一步()` 在 `_ctx._已取消` 时只是"让出一帧再返回"，循环会接着跑下一轮 ——
     //   实测：屏幕切走（或「停止」积木）之后，计数/克隆还在涨。
@@ -1536,7 +1690,7 @@ Emitter.prototype.stmtLines = function (stmt, ctx, indent) {
     out.push(note('发送广播' + (要等 ? '并等待' : ''), stmt.blockId));
     // 「发送广播」= 只发不等（K4 的语义：接收方各自跑，不等它们）；
     // 「发送广播并等待」= 等所有接收方的**这一段脚本跑完**才继续。
-    if (要等) out.push(pad + (this.协程['广播并等待'] ? 'await ' : '') + '角色.广播并等待(ctx, ' + 消息名 + ')');
+    if (要等) out.push(pad + (this.协程['广播并等待'] ? 'await ' : '') + 'K4Func.广播并等待(角色, ctx, ' + 消息名 + ')');
     else out.push(pad + '角色.广播(' + 消息名 + ')');
     if (stmt.body && stmt.body.length) out = out.concat(this.body(stmt.body, ctx, pad));
     return out;
@@ -1551,7 +1705,7 @@ Emitter.prototype.stmtLines = function (stmt, ctx, indent) {
     var chExpr = (stmt.choices || []).filter(function (c) { return c; })
       .map(function (c) { return self.expr(c, ctx); });
     out.push(note('询问并选择', stmt.blockId));
-    out.push(pad + (this.协程['询问并选择'] ? 'await ' : '') + '角色.询问并选择(ctx, ' + qExpr + ', [' + chExpr.join(', ') + '])');
+    out.push(pad + (this.协程['询问并选择'] ? 'await ' : '') + 'K4Func.询问并选择(角色, ctx, ' + qExpr + ', [' + chExpr.join(', ') + '])');
     if (stmt.body) out = out.concat(this.body(stmt.body, ctx, pad));
     return out;
   }
@@ -1592,7 +1746,7 @@ Emitter.prototype.stmtLines = function (stmt, ctx, indent) {
       Object.keys(输入).forEach(function (n) { if (数值 === null && 输入[n]) 数值 = 输入[n]; });
       var 轴串 = (轴 === 'width' || 轴 === '宽' || 轴 === '宽度') ? '"width"' : '"height"';
       out.push(note('设置' + (轴串 === '"width"' ? '宽' : '高') + '缩放（轴感知）', stmt.blockId));
-      out.push(pad + (self.协程[tname] ? 'await ' : '') + '角色.' + tname + '(' + 轴串 + ', ' + (数值 ? self.expr(数值, ctx) : '0.0') + ')');
+      out.push(pad + (self.协程[tname] ? 'await ' : '') + FUNC_SINGLETON + '.' + tname + '(角色, ' + 轴串 + ', ' + (数值 ? self.expr(数值, ctx) : '0.0') + ')');
       return out;
     }
     // 类型层桩统一签名：`func 名(参数: Array) -> void`。
@@ -1619,7 +1773,7 @@ Emitter.prototype.stmtLines = function (stmt, ctx, indent) {
       self.report.stubs[stmt.type].方法名 = tname;
       out.push(note(tname + '（桩）', stmt.blockId));
     }
-    out.push(pad + (self.协程[tname] ? 'await ' : '') + '角色.' + tname + '([' + targs.join(', ') + '])');
+    out.push(pad + (self.协程[tname] ? 'await ' : '') + FUNC_SINGLETON + '.' + tname + '(角色, [' + targs.join(', ') + '])');
     return out;
   }
 
@@ -1720,27 +1874,58 @@ Emitter.prototype.stmtLines = function (stmt, ctx, indent) {
   return out;
 };
 
+/* ★让出点密度（IR 层 + 运行端配合的优化）★
+   运行端 `角色基类.让出点(ctx)`：**非 warp 时立即返回**（语义与原来完全一致 ——
+   K4 里一个帽子的积木体本来就该在同一帧里一路跑下去），**warp 内才真去查预算**。
+
+   为什么需要：实测 PICKCAT斗地主 的 `当开始被点击时` 循环体 914 行里只有 9 个 `一步()`，
+   两个让出点之间的长段（几十行 + 一堆画笔/列表调用）跑多久都不让出 →
+   单帧 process 冲到 **223ms**，而 warp 的预算是 **16ms/帧**。
+
+   密度的取舍：GDScript 的编译成本 ∝ await 数量（实测约 26ms/个），
+   所以不能每几条就插一个 ——
+     太小 → 生成一堆 await，编译时间爆炸；
+     太大 → 单帧仍被长段卡住。
+   16 是折中：斗地主约 500 条语句 → 新增 ~30 个检查点（编译 +约 0.8s），
+   但把两个检查点之间的最长执行段砍掉一个数量级。 */
+var K4_让出密度 = 16;
+
 Emitter.prototype.body = function (list, ctx, indent) {
   var self = this;
   var out = [];
   if (!list || !list.length) { out.push(indent + 'pass'); return out; }
-  list.forEach(function (s) { out = out.concat(self.stmtLines(s, ctx, indent)); });
+  var 无让出段 = 0;
+  list.forEach(function (s, i) {
+    if (i > 0 && 无让出段 >= K4_让出密度) {
+      out.push(indent + 'await 角色.让出点(ctx)');
+      无让出段 = 0;
+    }
+    var 段 = self.stmtLines(s, ctx, indent);
+    out = out.concat(段);
+    // ★判据必须是"真的让出点"，不能是"有没有 await"★
+    //   实测教训：斗地主里 166 个 await 大多落在**同步的自定义积木 / 取值调用**上
+    //   （await 一个立刻返回的协程**并不会让出帧**），按 await 计数时永远到不了密度阈值 →
+    //   只补出 1 个检查点，单帧照样 223ms。
+    //   真正的让出点只有三类：一步() / 让出点() / 等待_秒()。
+    无让出段 = /(?:一步|让出点|等待_秒)\(/.test(段.join('\n')) ? 0 : 无让出段 + 1;
+  });
   return out;
 };
 
-/** 自定义积木调用：角色.积木名(ctx, 参数…) */
+/** 自定义积木调用：K4Func.积木名(角色, ctx, 参数…)
+ *  自定义积木的真实现住在 角色自定义积木 → 函数单例 上，
+ *  所以第一个实参是"这次跑在哪个角色上"（K4 的过程体是以调用者身份运行的）。 */
 Emitter.prototype.procCall = function (rawName, argsNode, owner, ctx) {
   var name = procIdent(rawName || '未命名积木');
   this.usedProcs[name] = true;
   var cargs = [];
   if (argsNode && argsNode.k === 'args') cargs = argsNode.args || [];
   else if (Array.isArray(argsNode)) cargs = argsNode;
-  var target = '角色';
-  if (owner) target = '角色.找(' + gdStr(String(owner)) + ')';
-  var parts = ['ctx'];
+  var 主体 = owner ? ('角色.找(' + gdStr(String(owner)) + ')') : '角色';
+  var parts = [主体, 'ctx'];
   for (var i = 0; i < cargs.length; i++) parts.push(this.expr(cargs[i], ctx));
   // 只在**这个自定义积木的函数体真的含 await** 时写 await（递归判定，见 过程是协程）
-  return (this.过程是协程(rawName) ? 'await ' : '') + target + '.' + name + '(' + parts.join(', ') + ')';
+  return (this.过程是协程(rawName) ? 'await ' : '') + FUNC_SINGLETON + '.' + name + '(' + parts.join(', ') + ')';
 };
 
 /** 收集全工程的自定义积木定义（K4 里它们是跨角色全局可见的） */
@@ -1863,7 +2048,7 @@ Emitter.prototype.emitActorScript = function (ent) {
   var self = this;
   var lines = [];
   lines.push('# K4-GENERATED  角色脚本');
-  lines.push('extends 角色类');
+  lines.push('extends 角色变量');
   lines.push('');
   // ★造型表（给 AnimatedSprite2D 用）★
   //   customs 是一个 AnimatedSprite2D，SpriteFrames 里**每个造型一帧**，
@@ -2139,6 +2324,24 @@ function emitProject(ir, opts) {
   gl.push('var 游戏屏幕: Node = null');
   gl.push('var 屏幕节点: Dictionary = {}');
   gl.push('var 屏幕顺序: Array = [' + (ir.scenes || []).map(function (sc) { return gdStr(String(sc.name)); }).join(', ') + ']');
+  gl.push('');
+  gl.push('## ★「下一屏 / 上一屏」★ —— K4 的「当前屏幕」取值块有两种特殊值');
+  gl.push('##   （`__next_scene` / `__prev_scene`，见 emit.js 的 屏幕取值()）。');
+  gl.push('##   按 屏幕顺序 循环；认不出当前屏幕时退回第一个。');
+  gl.push('func 下一屏幕() -> String:');
+  gl.push('    return _相邻屏幕(1)');
+  gl.push('');
+  gl.push('func 上一屏幕() -> String:');
+  gl.push('    return _相邻屏幕(-1)');
+  gl.push('');
+  gl.push('func _相邻屏幕(_步: int) -> String:');
+  gl.push('    var n := 屏幕顺序.size()');
+  gl.push('    if n == 0:');
+  gl.push('        return 当前屏幕');
+  gl.push('    var i := 屏幕顺序.find(当前屏幕)');
+  gl.push('    if i < 0:');
+  gl.push('        i = 0');
+  gl.push('    return String(屏幕顺序[wrapi(i + _步, 0, n)])');
   gl.push('');
   gl.push('## 屏幕根脚本 _ready 时登记自己');
   gl.push('func 登记屏幕(_名: String, _节点: Node) -> void:');
@@ -2597,13 +2800,12 @@ function emitVarLayer(ir, em) {
   L.push('# 调试器"变量"面板里也是中文名）。每个角色实例各有一份，互不影响；');
   L.push('# 各角色的**初值**由 <角色名>.gd 的 _ready() 赋。');
   L.push('#');
-  L.push('# 继承链：');
-  L.push('#   角色基类（引擎胶水 + K4 语义，runtime 提供）');
-  L.push('#     └ 角色变量（本文件 · 每次覆盖）      ← 数据：变量 / 列表成员');
-  L.push('#         └ 角色自带积木（每次覆盖）      ← 行为：自带积木的桩');
-  L.push('#             └ 角色自定义积木（每次覆盖）← K4 自定义积木的真实现');
-  L.push('#                 └ 角色类（★你写的文件 · 永不覆盖）');
-  L.push('#                     └ <角色名>.gd');
+  L.push('# 继承链（单例化之后）：');
+  L.push('#   角色实例那一侧：角色基类（runtime · 库）');
+  L.push('#     └─ 角色变量（本文件 · 每次覆盖）      ← 数据：变量 / 列表成员');
+  L.push('#          └─ <角色名>.gd（每次覆盖）');
+  L.push('#   函数单例那一侧（autoload `K4Func`）：角色自带积木 → 角色自定义积木 → 函数单例');
+  L.push('#     —— 所有积木实现都在那边，第一参数永远是 `角色: 角色变量`。');
   L.push('class_name 角色变量');
   L.push('extends 角色基类');
   L.push('');
@@ -2670,7 +2872,7 @@ function emitBuiltinLayer(ir, em) {
     L.push('# K4-GENERATED  角色自带积木（每次转换都会**覆盖**这个文件）');
     L.push('# ⚠ 没找到 runtime/模板/自带积木.gd，本文件退化成纯桩（全部 pass）。');
     L.push('class_name 角色自带积木');
-    L.push('extends 角色变量');
+    L.push('extends Node');
     L.push('');
   }
 
@@ -2713,7 +2915,9 @@ function emitBuiltinLayer(ir, em) {
           return (t === 'ctx' ? 'ctx' : '_p_' + sanitize(p[0], 'p' + i)) + ': ' + (GTYPE[t] || 'Variant');
         });
         var ret = GRET[mm.ret] || 'void';
-        L.push('func ' + mm.name + '(' + ps.join(', ') + ') -> ' + ret + ':');
+        // ★第一参数固定是 角色: 角色变量★（函数单例那一侧的调用约定）
+        L.push('func ' + mm.name + '(角色: 角色变量' +
+          (ps.length ? ', ' + ps.join(', ') : '') + ') -> ' + ret + ':');
         // ★缩进必须是 Tab★
         //   runtime/模板/自带积木.gd 全篇用 Tab，这里是**往那个文件后面追加**。
         //   以前这两行写的是 4 个空格 —— GDScript 一旦在同一文件里混用 Tab 和空格，
@@ -2760,7 +2964,7 @@ function emitProcLayer(ir, em) {
   L.push('# 所以下面每个函数体第一行是 `var 角色 := self`：让过程体里的');
   L.push('# `角色.xxx` 一律指向**正在运行的那个角色**，与 K4 语义一致，也与帽子脚本写法统一。');
   L.push('#');
-  L.push('# 你仍然可以在 角色类.gd 里覆写同名方法（那边优先级最高）。');
+  L.push('# 你可以在 全局/函数单例.gd 里覆写同名方法（那边优先级最高、永不覆盖）。');
   L.push('class_name 角色自定义积木');
   L.push('extends 角色自带积木');
   L.push('');
@@ -2775,7 +2979,7 @@ function emitProcLayer(ir, em) {
     var def = procs[n];
     var rawParams = (def && def.params) || [];
     var pmap = {};
-    var ps = ['ctx: 角色基类.WarpCtx'];
+    var ps = ['角色: 角色变量', 'ctx: 角色基类.WarpCtx'];
     rawParams.forEach(function (raw) {
       var gname = em ? em.ns.assign('积木参数', raw, '_p_') : ('_p_' + raw);
       pmap[String(raw)] = gname;
@@ -2783,10 +2987,10 @@ function emitProcLayer(ir, em) {
     });
     L.push('func ' + n + '(' + ps.join(', ') + ') -> Variant:');
     if (def && def.body && def.body.length && def.body.length > 0) {
-      L.push('    var 角色 := self        # 过程体以「调用者」身份运行（K4 语义）');
+      // ★不再需要 `var 角色 := self`★：`角色` 已经是本函数的第一个形参
+      //   （单例化之前，过程体是挂在角色实例上的，所以用 self 当"调用者"）。
       var pctx = { params: pmap, self: '角色' };
       var bodyLines = em.body(def.body, pctx, '    ');
-      // body() 在空体时给 pass；这里已经有 var 角色 一行，去掉多余的 pass
       if (bodyLines.length === 1 && bodyLines[0].trim() === 'pass') bodyLines = [];
       L = L.concat(bodyLines);
       L.push('    return null        # K4 过程可能没有显式 return');
@@ -2868,6 +3072,10 @@ function emitProjectGodot(em, scenes) {
   L.push('[autoload]');
   L.push('');
   L.push('K4Global="*res://全局/全局变量.gd"');
+  // ★函数单例（全局唯一）★：所有"积木实现 / 自定义积木"都住在这里
+  //   （角色自带积木 → 角色自定义积木 → 函数单例），调用点写 K4Func.名(角色, …)。
+  //   角色实例那一侧（角色基类 → 角色变量 → <角色名>.gd）只保留状态与引擎胶水。
+  L.push('K4Func="*res://全局/函数单例.gd"');
   L.push('K4Bus="*res://全局/广播总线.gd"');
   L.push('K4Canvas="*res://全局/画布调度.gd"');
   // 超长文本外置读取器：K4 里几 MB 的文本字面量被搬到 文本/*.txt，

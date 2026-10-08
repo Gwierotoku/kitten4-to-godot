@@ -25,6 +25,11 @@ _backup/
 *.bak
 *.bom_backup
 
+# ---- 迁移/代码生成工具的输出（_dev/out，跑脚本即可重新生成）----
+# 例：_dev/out/自带积木_单例版.gd（_dev/迁移_单例化.js 的产物）
+_dev/out/
+**/_dev/out/
+
 # ---- 调试探针与验证工程的运行缓存 ----
 _k4tmp_probe/
 _k4verify/

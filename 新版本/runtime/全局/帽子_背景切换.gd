@@ -26,7 +26,7 @@ var _上次背景: String = ""
 
 func _ready() -> void:
 	if 角色 != null and not 角色.k4_is_clone:  #k4特性
-		await get_tree().process_frame
+		if not await 让出帧(): return
 		_已启动 = true
 		var 屏幕 := _找屏幕()
 		if 屏幕 != null and 屏幕.has_signal(信号名):

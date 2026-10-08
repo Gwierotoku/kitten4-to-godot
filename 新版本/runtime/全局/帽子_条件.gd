@@ -28,7 +28,7 @@ var _上次为真: bool = false
 
 func _ready() -> void:
 	if 角色 != null and not 角色.k4_is_clone:  #k4特性
-		await get_tree().process_frame
+		if not await 让出帧(): return
 		_已启动 = true
 		_上次为真 = _取条件()          # 初始帧不触发（K4 创建当帧不执行）
 		set_process(true)

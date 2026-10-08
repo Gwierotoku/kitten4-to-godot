@@ -7,17 +7,26 @@ Verify with: cd 新版本; pwsh -File _dev\regress.ps1
 New .ps1 files MUST be saved as UTF-8 with BOM.
 
 WORKS: simple projects convert well; multi-screen/screen-switching is supported.
-KNOWN GAPS:
-  1. broadcast/广播 triggering is unreliable
-  2. pen layer vs sprite layer ordering is wrong
-  3. sprite collision is not implemented
-  4. physics is not implemented
-  5. large games run very slowly (severe performance problems)
-Items 1-4 mean implementing NEW capability - confirm design intent before
-guessing semantics. Item 5 needs actual profiling by whoever picks it up;
-the author is a single person with limited time and the specific bottlenecks
-are NOT yet identified. Use the 16 .bcm4 files in 测试用例/ to reproduce
+
+STATUS (check before assuming something is broken):
+  1. broadcast/广播 triggering - FIXED (round 21, custom signal system)
+  2. pen layer vs sprite layer ordering - FIXED (round 22; the real order is in
+     scene.group_order, NOT scene.actors which is usually an empty array)
+  3. sprite collision - NOT implemented (mask baking not started)
+  4. physics - NOT implemented
+  5. large-game performance - greatly improved (round 23: 223.6ms -> 6.2ms per
+     frame on PICKCAT斗地主) but still being optimized
+  6. sprite facing may be 180 degrees off - NEEDS VERIFICATION (likely a real bug)
+  7. multi-line text stamps - TODO (draw_string ignores newlines)
+
+Items 3-4 mean implementing NEW capability - confirm design intent before
+guessing semantics. Items 5-6 need actual measurement/profiling, not guesswork.
+Use the 16 .bcm4 files in 测试用例/ to reproduce
 (广播测试, 画笔图层与印章测试, 精灵战争...).
+
+ARCHITECTURE CHANGED (round 24): the 全局/角色类.gd layer was REMOVED. Block
+implementations now live in the global singleton K4Func (全局/函数单例.gd) with
+`角色: 角色变量` as the first parameter; role scripts now `extends 角色变量`.
 
 Framework by Gwier, implemented with DeepSeek Harness.
 LICENSE: CC BY-NC-SA 4.0 - COMMERCIAL USE IS PROHIBITED (see LICENSE).

@@ -17,7 +17,6 @@ STATUS (check before assuming something is broken):
   5. large-game performance - greatly improved (round 23: 223.6ms -> 6.2ms per
      frame on PICKCAT斗地主) but still being optimized
   6. sprite facing may be 180 degrees off - NEEDS VERIFICATION (likely a real bug)
-  7. multi-line text stamps - TODO (draw_string ignores newlines)
 
 Items 3-4 mean implementing NEW capability - confirm design intent before
 guessing semantics. Items 5-6 need actual measurement/profiling, not guesswork.

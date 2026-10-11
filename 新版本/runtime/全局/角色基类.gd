@@ -50,10 +50,10 @@ class_name 角色基类
 extends Node2D
 
 # —— K4 舞台常量 ——
-const K4_舞台宽 := 480.0
-const K4_舞台高 := 360.0
-const K4_半宽 := 240.0
-const K4_半高 := 180.0
+const K4_舞台宽 = 480.0
+const K4_舞台高 = 360.0
+const K4_半宽 = 240.0
+const K4_半高 = 180.0
 
 # ★下面这几个常量**照抄 K4 运行时的真实配置**★
 #
@@ -69,8 +69,8 @@ const K4_半高 := 180.0
 #     · 克隆数能超过 K4 的「每帧 300」与「每角色 300」上限 → 用户看到的
 #       **"克隆数量远超逻辑上该触发的数量"**。
 #   （另有一套 `legacy` 配置里 per_entity_clone_limit 是 512，但那套不作用于运行时。）
-const K4_WARP_ITERS := 30000
-const K4_WARP_MS := 4
+const K4_WARP_ITERS = 30000
+const K4_WARP_MS = 4
 
 # ★每帧给**所有** warp 段共享的总预算（毫秒）★
 #   为什么必须有这一条：
@@ -79,7 +79,7 @@ const K4_WARP_MS := 4
 #     但 Godot 里几十个角色**同时**各有自己的 warp 段（各自一个协程），
 #     各自 4ms 会叠加成"几十毫秒一帧"。
 #   所以这里再压一道：一帧里所有 warp 加起来最多跑这么多毫秒，超了就本帧内一律让出。
-const K4_帧warp预算 := 16
+const K4_帧warp预算 = 16
 
 # ★克隆上限（K4 有**两道**，缺一不可）★
 #   ① 每角色**存活**的克隆体上限 300 —— 超了就自动销毁**最老的**（FIFO 淘汰），
@@ -89,8 +89,8 @@ const K4_帧warp预算 := 16
 #        if (entities_cloned_times[e] > entity_max_clones_per_frame) → 整个 if 不进。
 #   以前我们只有 ①（而且值写成 512），**完全没有 ②** ——
 #   warp 里的循环克隆一帧就能创建几百上千个，K4 会卡在 300。
-const K4_每角色克隆上限 := 300
-const K4_每帧克隆上限 := 300
+const K4_每角色克隆上限 = 300
+const K4_每帧克隆上限 = 300
 
 # =============================================================================
 # 内层类：warp 上下文
@@ -116,8 +116,27 @@ var k4_y: float = 0.0
 var k4_direction: float = 90.0         # K4 方向：90 = 向右，顺时针为正
 var k4_visible: bool = true
 var k4_is_clone: bool = false
-var k4_clone_of = null                 # 原体引用（克隆体才有）
-var k4_clones: Array = []              # 我产生的克隆体
+## 「复制体」= 克隆体**或**分裂体。两者的区别只在于"跑不跑克隆体帽子"：
+##   · 克隆体（mirror）：k4_is_clone = true,  跑「当作为克隆体启动」
+##   · 分裂体（clone） ：k4_is_clone = false, 不跑克隆体帽子，但**跑一般帽子**
+## 而"不是本体"这件事两者相同 —— 绿旗对它们一律不执行（见 帽子_开始）。
+var k4_是复制体: bool = false
+## 复制体的**固定编号**（1 基，**只增不减**）；本体恒 0。
+##   ★为什么必须是"固定编号"而不是"在列表里的下标"★
+##   K4 的作品常把编号当**身份/键**用：分裂测试里先把 `克隆体编号()` 记进列表，
+##   之后又拿列表里那个值去读「第 n 号克隆体的属性」。
+##   以前的编号 = `k4_clones.find(self) + 1` —— 前面死掉一个，后面**全体 -1**，
+##   于是同一条记录指向了另一个克隆体：引用错位、`最小编号` 那套协调逻辑全乱。
+##   现在编号在创建时分配一次，之后**永不改变、永不回收**。
+var k4_克隆体编号: int = 0
+## 本体/源上的"下一个要分配的编号"（单调递增，永不回退）。
+##   ★克隆自己() 与 分裂() 共用这一个计数器★ —— K4 里两者是同一套编号。
+var k4_下次克隆编号: int = 0
+var k4_clone_of = null                 # 归属：克隆体 / 分裂体都指向它的**原型**
+## 我产生的**克隆体 + 分裂体**。
+##   ★K4 里两者共享同一份"克隆体"计数★：编号、数量、「第 n 号克隆体的属性」
+##   和 300 个的预算上限都走这一个列表。
+var k4_clones: Array = []
 var k4_alive: bool = true
 var k4_canvas: Node = null             # 本屏幕的画布节点（可空）
 
@@ -153,7 +172,7 @@ var k4_timer_running: bool = true      # 【已废弃·请用 K4Timer.在走】
 var k4_pen_down: bool = false          # 画笔状态（各角色各一份，绘制指令进屏幕画布）
 var k4_pen_color: Color = Color.BLACK
 var k4_pen_size: float = 1.0
-var k4_last_pen_point := Vector2.ZERO  # 上一次落笔点（K4 舞台坐标）
+var k4_last_pen_point = Vector2.ZERO  # 上一次落笔点（K4 舞台坐标）
 
 # =============================================================================
 # 【单例化搬迁】以下状态原先声明在「角色自带积木」里（它是角色实例继承链的一层）。
@@ -241,8 +260,12 @@ var _k4待删帧: int = -1
 # 初始化
 # =============================================================================
 func 初始化() -> void:
-	if k4_clone_of != null:
-		k4_is_clone = true
+	# ★复制体的身份由 克隆自己() / 分裂() 在**入树之前**标好★
+	#   这里不能再拿 `k4_clone_of != null` 反推 k4_is_clone：
+	#   分裂体的 k4_clone_of 也非空，那样会把分裂体误标成克隆体 ——
+	#   症状是"分裂体不响应广播/按键，却开始跑「当作为克隆体启动」"。
+	if k4_是复制体:
+		pass
 	else:
 		k4_clones.clear()
 		k4_is_clone = false
@@ -354,7 +377,7 @@ func 一步(_ctx: WarpCtx) -> void:
 	#   所以顺序必须是：先 is_instance_valid(self) → 再 get_tree() → 再判 null。
 	if not is_instance_valid(self):
 		return
-	var 树 := get_tree()
+	var 树 = get_tree()
 	if 树 == null:
 		_ctx._已取消 = true
 		return
@@ -362,11 +385,11 @@ func 一步(_ctx: WarpCtx) -> void:
 		await 树.process_frame
 		return
 	if _ctx.depth > 0:
-		var 本帧 := Engine.get_process_frames()
+		var 本帧 = Engine.get_process_frames()
 		if _warp帧号 != 本帧:
 			_warp帧号 = 本帧
 			_warp帧起点 = Time.get_ticks_msec()
-		var 本帧已用 := Time.get_ticks_msec() - _warp帧起点
+		var 本帧已用 = Time.get_ticks_msec() - _warp帧起点
 		# ★warp 段要在**同一帧内**尽量跑完★（不要按"本段已跑 4ms"就让出）
 		#   这一条直接决定"数字/克隆是**一起出现**还是**逐个蹦出来 + 闪烁**"：
 		#   K4 的「一步执行」语义就是"这一帧里把这段跑完"。以前这里除了帧预算
@@ -420,7 +443,7 @@ func 让出点(ctx: WarpCtx) -> void:
 func 让出帧() -> bool:
 	if not is_instance_valid(self):
 		return false
-	var 树 := get_tree()
+	var 树 = get_tree()
 	if 树 == null:
 		return false
 	await 树.process_frame
@@ -432,7 +455,7 @@ func 让出帧() -> bool:
 func _apply_transform() -> void:
 	position = Vector2(k4_x, -k4_y)          # K4 原点在舞台中心、y 轴向上
 	rotation = deg_to_rad(90.0 - k4_direction)  # K4 方向 90 = 向右 = rotation 0
-	var 系数 := k4_size_percent / 100.0
+	var 系数 = k4_size_percent / 100.0
 	scale = Vector2(系数 * _k4_宽缩放, 系数 * _k4_高缩放)
 	visible = k4_visible
 
@@ -441,11 +464,11 @@ func _apply_transform() -> void:
 # =============================================================================
 func _对齐舞台层() -> void:
 	# 「基础角色层」的 local (0,0) 必须落在舞台中心。
-	var 层 := get_parent()
+	var 层 = get_parent()
 	if 层 is Node2D and k4_clone_of == null:
-		var 容器 := 层 as Node2D
+		var 容器 = 层 as Node2D
 		if 容器.get_parent() != null:
-			var 视口 := get_viewport_rect().size
+			var 视口 = get_viewport_rect().size
 			容器.position = 视口 * 0.5      # K4 舞台原点在中心
 
 func _查找画布() -> void:
@@ -459,9 +482,9 @@ func _查找画布() -> void:
 		return
 	# ② 按约定名在屏幕里找。不要一上来就递归找"有 落笔 方法的节点"——
 	#    角色自己（角色基类）也有 落笔，递归很容易先撞上某个角色。
-	var 根 := 屏幕根()
+	var 根 = 屏幕根()
 	if 根 != null:
-		var 直接 := 根.get_node_or_null("屏幕绘制")
+		var 直接 = 根.get_node_or_null("屏幕绘制")
 		if 直接 != null and 直接.has_method("落笔"):
 			k4_canvas = 直接
 			return
@@ -473,7 +496,7 @@ func _在子树里找画布(_节点: Node) -> Node:
 		if 子.has_method("落笔"):
 			return 子
 	for 子 in _节点.get_children():
-		var r := _在子树里找画布(子)
+		var r = _在子树里找画布(子)
 		if r != null:
 			return r
 	return null
@@ -486,7 +509,7 @@ func _收集造型() -> void:
 	_造型偏移表.clear()
 	_造型节点表.clear()
 	造型精灵 = null
-	var 容器 := get_node_or_null("customs")
+	var 容器 = get_node_or_null("customs")
 	if 容器 == null:
 		return
 
@@ -504,7 +527,7 @@ func _收集造型() -> void:
 		if has_method("_造型偏移"):
 			偏表 = call("_造型偏移")
 		for i in 名表.size():
-			var 名 := String(名表[i])
+			var 名 = String(名表[i])
 			if 名 == "":
 				continue
 			k4_costumes[名] = i
@@ -529,14 +552,14 @@ func _收集造型() -> void:
 	#   current_style 烘成了 visible（其余 false）。以前这里直接取 keys()[0] ——
 	#   那是字典顺序的第一个，和"哪个可见"毫无关系（症状：舞台背景被切到空白图）。
 	# =========================================================================
-	var 首个可见节点名 := ""
+	var 首个可见节点名 = ""
 	var 别名: Dictionary = {}
 	if has_method("_造型别名"):
 		别名 = call("_造型别名")
-	var 序 := 0
+	var 序 = 0
 	for 子 in 容器.get_children():
-		var 节点名 := String(子.name)
-		var 原名 := String(别名.get(节点名, 节点名))
+		var 节点名 = String(子.name)
+		var 原名 = String(别名.get(节点名, 节点名))
 		_造型节点名[原名] = 节点名
 		_造型原名[节点名] = 原名
 		k4_costumes[原名] = 序
@@ -561,18 +584,18 @@ func 规范化造型名(_名: String) -> String:
 		return _名
 	if k4_costumes.has(_名):
 		return _名
-	var 真 := String(_造型原名.get(_名, ""))
+	var 真 = String(_造型原名.get(_名, ""))
 	return 真 if 真 != "" else _名
 
 ## 造型序号（0 基 = SpriteFrames 帧号）；找不到返回 -1
 func 造型序号(_名: String = "") -> int:
-	var 名 := 规范化造型名(k4_costume_name if _名 == "" else _名)
+	var 名 = 规范化造型名(k4_costume_name if _名 == "" else _名)
 	return int(k4_costumes.get(名, -1))
 
 ## 当前造型的**纹理**（碰撞掩码 / 画笔图章 / 造型尺寸都用它）
 func 当前纹理() -> Texture2D:
 	if 造型精灵 != null:
-		var sf := 造型精灵.sprite_frames
+		var sf = 造型精灵.sprite_frames
 		if sf == null:
 			return null
 		return sf.get_frame_texture(造型精灵.animation, 造型精灵.frame)
@@ -585,7 +608,7 @@ func 当前纹理() -> Texture2D:
 func 造型纹理(_名: String) -> Texture2D:
 	# 新结构：从 SpriteFrames 里按帧号取
 	if 造型精灵 != null:
-		var 序 := 造型序号(_名)
+		var 序 = 造型序号(_名)
 		if 序 < 0:
 			return null
 		return 造型精灵.sprite_frames.get_frame_texture(造型精灵.animation, 序)
@@ -595,7 +618,7 @@ func 造型纹理(_名: String) -> Texture2D:
 	return null
 
 func _应用造型(_名称: String = "") -> void:
-	var 原名 := 规范化造型名(k4_costume_name if _名称 == "" else _名称)
+	var 原名 = 规范化造型名(k4_costume_name if _名称 == "" else _名称)
 	if not k4_costumes.has(原名):
 		return                     # 找不到这个造型：什么都不做（K4 里也是没反应）
 	k4_costume_name = 原名
@@ -630,7 +653,7 @@ func 画布落笔(_终点: Vector2) -> void:
 
 # K4 坐标（原点在舞台中心、y 轴向上）-> 舞台坐标（原点在舞台左上角、y 轴向下）
 func k4到舞台(_点: Vector2) -> Vector2:
-	var 尺寸 := get_viewport_rect().size
+	var 尺寸 = get_viewport_rect().size
 	return Vector2(尺寸.x * 0.5 + _点.x, 尺寸.y * 0.5 - _点.y)
 
 func 设置画布(_画布: Node) -> void:
@@ -658,17 +681,32 @@ func 设置画布(_画布: Node) -> void:
 # -----------------------------------------------------------------------------
 func _转数值(_v: Variant) -> float:
 	if _v == null:
-		return 0.0
-	if _v is bool:
-		return 1.0 if _v else 0.0
-	if _v is float or _v is int:
-		return float(_v)
-	if _v is String:
+		return 0
+	elif _v is bool:
+		return 1 if _v else 0
+	elif _v is float:
+		var _int = round(_v) 
+		if is_equal_approx(_v,_int):
+			return round(_v)
+		else:
+			return _v
+	elif _v is String:
 		var s: String = _v
 		if s.strip_edges() == "":
-			return 0.0
-		return s.to_float() if s.is_valid_float() else NAN
-	return NAN
+			return NAN
+		if s.is_valid_float():
+			return _转数值(s.to_float())
+		elif s.is_valid_int():
+			return s.to_int()
+		else:
+			return NAN
+	elif _v is int:
+		return _v
+	else:
+		push_warning("可能输入了无效的运算,可在角色基类 _转数值 进行断点调试")
+		return NAN
+	
+	
 
 # K4 的真值规则（GDScript 的 if 只吃 bool，而 K4 的 "computer" 也是真）
 func 为真(_v: Variant) -> bool:
@@ -696,11 +734,11 @@ func 大于等于(_a: Variant, _b: Variant) -> bool: return 比较("gte", _a, _b
 func 比较(_运算符: String, _a: Variant, _b: Variant) -> bool:
 	# K4/Scratch 的规则：两侧**都能当数字**就按数字比，否则按**字符串**比（字典序）。
 	# 以前 lt/lte/gt/gte 在非数值时一律返回 false —— 那是错的（"abc" < "abd" 应该为真）。
-	var an := _转数值(_a)
-	var bn := _转数值(_b)
-	var 双数值 := not is_nan(an) and not is_nan(bn)
-	var sa := str(_a)
-	var sb := str(_b)
+	var an = _转数值(_a)
+	var bn = _转数值(_b)
+	var 双数值 = not is_nan(an) and not is_nan(bn)
+	var sa = str(_a)
+	var sb = str(_b)
 	match _运算符:
 		"eq":  return (an == bn) if 双数值 else (sa == sb)
 		"neq": return (an != bn) if 双数值 else (sa != sb)
@@ -716,8 +754,8 @@ func 算术运算(_运算符: String, _a: Variant, _b: Variant) -> Variant:
 			# K4/Scratch：「两侧都能当数字」就做数值加法，否则拼字符串。
 			#   6 + 1 = 7        "5" + 1 = 6        "a" + 1 = "a1"
 			# 不能写成「任一侧是 String 就拼接」—— 那样 "5" + 1 会得到 "51"。
-			var an := _转数值(_a)
-			var bn := _转数值(_b)
+			var an = _转数值(_a)
+			var bn = _转数值(_b)
 			if not is_nan(an) and not is_nan(bn):
 				return an + bn
 			return str(_a) + str(_b)
@@ -737,7 +775,7 @@ func 算术运算(_运算符: String, _a: Variant, _b: Variant) -> Variant:
 # 这三个是**每个算术表达式都可能用到**的东西，必须始终可用 ——
 # 所以它们放在库层，而不是等你去 角色自带积木.gd 里填桩（那样会静默算错）。
 func 转数字(_值: Variant) -> float:
-	var n := _转数值(_值)
+	var n = _转数值(_值)
 	return 0.0 if is_nan(n) else n
 
 func 转文本(_值: Variant) -> String:
@@ -756,11 +794,11 @@ func 转文本(_值: Variant) -> String:
 # K4 的取余结果符号**跟随除数**（-7 mod 3 = 2、7 mod -3 = -2），
 # 而 GDScript 的 fmod 让符号跟随被除数 —— 不能直接用。
 func 取余(_a: Variant, _b: Variant) -> Variant:
-	var x := _转数值(_a)
-	var y := _转数值(_b)
+	var x = _转数值(_a)
+	var y = _转数值(_b)
 	if y == 0.0:
 		return 0.0
-	var r := fmod(x, y)
+	var r = fmod(x, y)
 	if r != 0.0 and ((r < 0.0) != (y < 0.0)):
 		r += y
 	return r
@@ -791,20 +829,20 @@ func 取余(_a: Variant, _b: Variant) -> Variant:
 ##     · 认不出来的名字 → 换成 0（K4 里"没有值就是 0"），
 ##       免得一个名字就让整个算式求值失败、连累后面所有项。
 func _k4算式换变量(文本: String) -> String:
-	const 保留 := ["pi", "e", "sin", "cos", "tan", "asin", "acos", "atan",
+	const 保留 = ["pi", "e", "sin", "cos", "tan", "asin", "acos", "atan",
 		"k4sin", "k4cos", "k4tan", "k4asin", "k4acos", "k4atan",
 		"log", "ln", "sqrt", "abs", "exp", "floor", "ceil", "round", "sign",
 		"deg_to_rad", "rad_to_deg", "clamp", "pow", "min", "max", "fmod",
 		"true", "false", "not", "and", "or"]
-	var re := RegEx.new()
+	var re = RegEx.new()
 	if re.compile("\"([^\"]*)\"|([A-Za-z_\\x{4e00}-\\x{9fa5}][A-Za-z0-9_\\x{4e00}-\\x{9fa5}]*)") != OK:
 		return 文本
-	var 出 := ""
-	var 上 := 0
+	var 出 = ""
+	var 上 = 0
 	for m in re.search_all(文本):
 		出 += 文本.substr(上, m.get_start() - 上)
 		上 = m.get_end()
-		var 名 := m.get_string(1)
+		var 名 = m.get_string(1)
 		if 名 == "":
 			名 = m.get_string(2)
 		if 保留.has(名):
@@ -814,7 +852,7 @@ func _k4算式换变量(文本: String) -> String:
 		if 值 is float or 值 is int:
 			出 += str(float(值))
 		elif 值 is String:
-			var sv := String(值)
+			var sv = String(值)
 			if sv.is_valid_float():
 				出 += str(sv.to_float())
 			else:
@@ -840,12 +878,12 @@ func _k4算式求值(文本: String) -> float:
 	#     所以只能做文本展开。反三角是**返回度**，用 rad_to_deg 包一层。
 	# ★先把算式里的"变量名"换成数值★（K4 的「计算」允许直接写变量名）
 	#   顺序：换变量 -> 归一化（全角/函数/数字浮点）-> 三角展开
-	var s := _k4三角展开(_k4算式归一(_k4算式换变量(文本)))
+	var s = _k4三角展开(_k4算式归一(_k4算式换变量(文本)))
 	if s.strip_edges() == "":
 		return 0.0
-	var e := Expression.new()
+	var e = Expression.new()
 	# 常量走 input_names：算式里写 pi / e 都能用（Godot 的 @GlobalScope 没有 E 常量）
-	var 错 := e.parse(s, ["pi", "e"])
+	var 错 = e.parse(s, ["pi", "e"])
 	if 错 != OK:
 		push_warning("「计算」积木：算式解析失败 \"" + 文本 + "\" -> " + e.get_error_text())
 		return 0.0
@@ -856,13 +894,13 @@ func _k4算式求值(文本: String) -> float:
 	if r is bool:
 		return 1.0 if r else 0.0
 	if r is float or r is int:
-		var n := float(r)
+		var n = float(r)
 		# 除零会得到 inf/nan —— 统一按 K4 的"没有值"处理成 0，避免污染后面的算术
 		return 0.0 if (is_nan(n) or is_inf(n)) else n
 	return _转数值(r)
 
 func _k4算式归一(文本: String) -> String:
-	var t := 文本.strip_edges()
+	var t = 文本.strip_edges()
 	# 全角 -> 半角（中文输入法下用户就是这么写的）
 	t = t.replace("（", "(").replace("）", ")").replace("［", "[").replace("］", "]")
 	t = t.replace("×", "*").replace("÷", "/").replace("－", "-").replace("＋", "+")
@@ -876,16 +914,16 @@ func _k4算式归一(文本: String) -> String:
 	t = t.replace("^", "**")
 	# 不带括号的函数调用：sin1 -> sin(1)、cos 2 -> cos(2)、sqrt9 -> sqrt(9)
 	#   只处理"函数名 + 可选空格 + 一个数字"这种最常见形态（K4 用户基本这么写）
-	var re := RegEx.new()
+	var re = RegEx.new()
 	if re.compile("(?<![A-Za-z0-9_])(asin|acos|atan|sinh|cosh|tanh|sin|cos|tan|log|sqrt|abs|exp|floor|ceil|round|sign)(\\s*)(-?[0-9]+(?:\\.[0-9]+)?)") == OK:
 		t = re.sub(t, "$1($3)", true)
 	# ★把三角函数换成带 k4 前缀的自定义函数（度语义，见 _k4算式求值 里的说明）★
 	#   必须先反三角、后正三角：否则 asin 里的 "sin" 会被后一条规则抢先替换
 	#   变成 "a k4sin"。（(?![A-Za-z0-9_]) 也顺手挡住了 sinh/cosh/tanh）
-	var re反 := RegEx.new()
+	var re反 = RegEx.new()
 	if re反.compile("(?<![A-Za-z0-9_])(asin|acos|atan)(?![A-Za-z0-9_])") == OK:
 		t = re反.sub(t, "k4$1", true)
-	var re正 := RegEx.new()
+	var re正 = RegEx.new()
 	if re正.compile("(?<![A-Za-z0-9_])(sin|cos|tan)(?![A-Za-z0-9_])") == OK:
 		t = re正.sub(t, "k4$1", true)
 	# ★把整数字面量全部变成浮点★（必须放在最后一步）
@@ -903,7 +941,7 @@ func _k4算式归一(文本: String) -> String:
 	#   把数字写成 `1.0` / `64.0` 之后，`/` 就是浮点除法，与 K4 一致。
 	#   （后面的 `(?![0-9.])` 保证不会破坏已有的 `1.5` 或再重复加 `.0`；
 	#     前面的 `(?<![0-9A-Za-z_.])` 保证不会碰 `pi2` 这类标识符里的数字。）
-	var re数 := RegEx.new()
+	var re数 = RegEx.new()
 	if re数.compile("(?<![0-9A-Za-z_.])([0-9]+)(?![0-9.])") == OK:
 		t = re数.sub(t, "$1.0", true)
 	return t
@@ -915,12 +953,12 @@ func _k4算式归一(文本: String) -> String:
 ##   k4sin(1+2)*3    -> sin(deg_to_rad(1+2))*3
 ##   k4sin(k4cos(2)) -> sin(deg_to_rad(cos(deg_to_rad(2))))
 func _k4三角展开(文本: String) -> String:
-	const 名表 := ["k4asin", "k4acos", "k4atan", "k4sin", "k4cos", "k4tan"]
-	var 出 := ""
-	var i := 0
-	var n := 文本.length()
+	const 名表 = ["k4asin", "k4acos", "k4atan", "k4sin", "k4cos", "k4tan"]
+	var 出 = ""
+	var i = 0
+	var n = 文本.length()
 	while i < n:
-		var 命中 := ""
+		var 命中 = ""
 		for 名 in 名表:
 			if i + 名.length() <= n and 文本.substr(i, 名.length()) == 名:
 				命中 = 名
@@ -929,7 +967,7 @@ func _k4三角展开(文本: String) -> String:
 			出 += 文本[i]
 			i += 1
 			continue
-		var j := i + 命中.length()
+		var j = i + 命中.length()
 		while j < n and 文本[j] == " ":
 			j += 1
 		if j >= n or 文本[j] != "(":
@@ -937,8 +975,8 @@ func _k4三角展开(文本: String) -> String:
 			i += 1
 			continue
 		# 括号配对
-		var 深 := 0
-		var k := j
+		var 深 = 0
+		var k = j
 		while k < n:
 			if 文本[k] == "(":
 				深 += 1
@@ -951,7 +989,7 @@ func _k4三角展开(文本: String) -> String:
 			出 += 文本[i]
 			i += 1
 			continue
-		var 参 := _k4三角展开(文本.substr(j + 1, k - j - 1))
+		var 参 = _k4三角展开(文本.substr(j + 1, k - j - 1))
 		match 命中:
 			"k4sin":  出 += "sin(deg_to_rad(" + 参 + "))"
 			"k4cos":  出 += "cos(deg_to_rad(" + 参 + "))"
@@ -1028,7 +1066,7 @@ func 取值(_名: String) -> Variant:
 	return K4Global.取值(_名)
 
 func 列表(_名: String) -> Array:
-	var 键 := _解析变量名(_名)
+	var 键 = _解析变量名(_名)
 	var v: Variant = get(键)
 	if v is Array:
 		return v
@@ -1062,9 +1100,9 @@ func 转整数(_值: Variant) -> int:
 	return int(_值)
 
 func 找(_名: String) -> Node:
-	var 层 := get_parent()
+	var 层 = get_parent()
 	if 层 != null:
-		var 命中 := _在子树里找名(层, _名)
+		var 命中 = _在子树里找名(层, _名)
 		if 命中 != null:
 			return 命中
 	# ② 兜底：在**整个屏幕**里找。为什么需要这一步 ——
@@ -1073,12 +1111,12 @@ func 找(_名: String) -> Node:
 	#    ⚠ 必须从屏幕的**子节点**开始找，不能把屏幕根自己算进去：
 	#    场景根节点常常和某个角色同名（舞台就叫「背景」），
 	#    否则 找("背景") 会命中屏幕根，跨角色调用就打到没有该方法的对象上。
-	var 屏 := 屏幕根()
+	var 屏 = 屏幕根()
 	if 屏 != null:
 		for 子 in 屏.get_children():
 			if _节点匹配(子, _名):
 				return 子
-			var r := _在子树里找名(子, _名)
+			var r = _在子树里找名(子, _名)
 			if r != null:
 				return r
 	return null
@@ -1089,7 +1127,7 @@ func 找(_名: String) -> Node:
 # （以前 _查找画布() 就是这么写的，结果在 视口 的孩子里撞上了 K4Canvas 这个
 #  转发单例，把 k4_canvas 指成了它 —— 能用，但不是画布节点本身）。
 func 屏幕根() -> Node:
-	var 树 := get_tree()
+	var 树 = get_tree()
 	if 树 == null:
 		return null          # 还没入树（例如 _ready 之前 / 已被 release）—— 调用方按"拿不到屏幕"处理
 	# ① 优先认**已登记的屏幕节点**（屏幕脚本 _ready 里登记的那个）——
@@ -1108,7 +1146,7 @@ func 屏幕根() -> Node:
 	var 容器: Node = (K4Global.游戏屏幕 if K4Global != null else null)
 	根 = self
 	while 根.get_parent() != null:
-		var 父 := 根.get_parent()
+		var 父 = 根.get_parent()
 		if 父 == 树.root:
 			return 根                                  # 旧架构：屏幕场景直接挂 root
 		if 容器 != null and is_instance_valid(容器) and 父 == 容器:
@@ -1121,7 +1159,7 @@ func _在子树里找名(_节点: Node, _名: String) -> Node:
 		if _节点匹配(子, _名):
 			return 子
 	for 子 in _节点.get_children():
-		var r := _在子树里找名(子, _名)
+		var r = _在子树里找名(子, _名)
 		if r != null:
 			return r
 	return null
@@ -1159,21 +1197,21 @@ func 克隆自己() -> Node:
 	#     即：不创建、不排队、不删旧的，直接什么都不做。
 	#   为什么必须照抄：warp 里的循环克隆一帧能创建几百上千个，而 K4 会卡在 300 ——
 	#   不补这一道，作品里的克隆数就会**远超逻辑上该触发的数量**。
-	var 本帧 := Engine.get_process_frames()
+	var 本帧 = Engine.get_process_frames()
 	if _克隆帧号 != 本帧:
 		_克隆帧号 = 本帧
 		_克隆本帧次数.clear()
-	var 我 := get_instance_id()
-	var 本帧已克隆 := int(_克隆本帧次数.get(我, 0))
+	var 我 = get_instance_id()
+	var 本帧已克隆 = int(_克隆本帧次数.get(我, 0))
 	if 本帧已克隆 >= K4_每帧克隆上限:
 		return null
 	_克隆本帧次数[我] = 本帧已克隆 + 1
 	# 记下克隆开始时刻 —— 结束时要把这段耗时从 warp 预算里扣掉（见函数末尾的注释）
-	var 克隆开始 := Time.get_ticks_msec()
-	var 新体 := duplicate(DUPLICATE_USE_INSTANTIATION)
+	var 克隆开始 = Time.get_ticks_msec()
+	var 新体 = duplicate(DUPLICATE_USE_INSTANTIATION)
 	if 新体 == null:
 		return null
-	var 体 := 新体 as Node2D
+	var 体 = 新体 as Node2D
 	if 体 == null:
 		return null
 	# ★必须显式把脚本补上★
@@ -1228,24 +1266,30 @@ func 克隆自己() -> Node:
 	#
 	#   注意入树后还要**再标一次**：`_克隆搬状态()` 会把 `k4_` 前缀的成员（含
 	#   `k4_is_clone` / `k4_clone_of`）从原体一起搬过来，会把这里的值覆盖掉。
+	# ★归属一律是"原型"★
+	#   克隆体自己再克隆时，新体仍然算**原型**的克隆 —— K4 的克隆体没有自己的
+	#   克隆列表：编号 / 数量 / 300 预算 /「第 n 号克隆体」全都是原型这一份。
+	var 归属 := 原型()
+	# ★`k4_是复制体` 必须在入树之前就设好★
+	#   `add_sibling()` 会**立刻**触发它自己的 `_ready()` → `初始化()`，
+	#   而 `初始化()` 是按 `k4_是复制体` 决定"要不要把 k4_is_clone 重置回本体"的。
+	#   不设的话它会走 else 分支，把刚标好的 k4_is_clone **重置回 false**：
+	#   克隆体于是被当成本体 —— 去跑绿旗、去注册广播（指数增长），
+	#   而「当作为克隆体启动」永远不触发。
 	体.set("k4_is_clone", true)
-	体.set("k4_clone_of", self)
+	体.set("k4_是复制体", true)
+	体.set("k4_clone_of", 归属)
 	add_sibling(体)
 	_克隆搬状态(体)
 	# 关系字段放到最后再确认一次：它们是"生命周期"标记，不能被上面的搬状态覆盖
 	if 体.has_method("标为克隆"):
-		体.标为克隆(self)
+		体.标为克隆(归属)
 	else:
 		体.set("k4_is_clone", true)
-		体.set("k4_clone_of", self)
-	k4_clones.append(体)
-	# 超出「每个角色」的克隆上限 → 销毁**最老的**（照抄 K4 的 FIFO 淘汰：
-	# original_id_2_clone_id_list[原体] 超长时从头上 dispose_clone）。
-	# 注意是 while 不是 if：一次多出来的可能不止一个。
-	while k4_clones.size() > K4_每角色克隆上限:
-		var 最老 = k4_clones.pop_front()
-		if 最老 != null and is_instance_valid(最老):
-			最老.queue_free()
+		体.set("k4_是复制体", true)
+		体.set("k4_clone_of", 归属)
+	# 编号由原型分配（只增不减），与 分裂() 共用同一套
+	归属._登记复制体(体, 归属._分配克隆体编号())
 	# ★把"克隆本身的耗时"从 warp 预算里扣掉★
 	#
 	#   为什么必须扣：Godot 的 `duplicate()` 要**深拷贝整棵节点树 + 重新实例化子场景**
@@ -1292,16 +1336,20 @@ func _克隆搬状态(体: Node) -> void:
 	# 自动带过去** —— 克隆体上那些成员是脚本里声明时的初始值。
 	# 于是"原体已经移到 (100,50)、大小 30%"，克隆体却按初始态出生。
 	# 这里按属性名逐个搬一遍，语义就是"完全继承当前状态"。
-	var 属性集 := 体.get_property_list()
+	var 属性集 = 体.get_property_list()
 	for i in 属性集.size():
-		var 名 := String(属性集[i].get("name", ""))
-		var 是引擎状态 := 名.begins_with("k4_")
-		var 是角色变量 := 名.begins_with("_v_") or 名.begins_with("_l_")
+		var 名 = String(属性集[i].get("name", ""))
+		var 是引擎状态 = 名.begins_with("k4_")
+		var 是角色变量 = 名.begins_with("_v_") or 名.begins_with("_l_")
 		if not 是引擎状态 and not 是角色变量:
 			continue
-		# 这几个是"关系/生命周期"字段，由 标为克隆() 与出生保护负责，
-		# 不能从原体照搬（照搬会让克隆体以为自己就是原体/带着原体的克隆列表）。
-		if 是引擎状态 and (名 == "k4_clones" or 名 == "k4_clone_of" or 名 == "k4_alive" or 名 == "k4_出生帧"):
+		# 这几个是"关系/生命周期"字段，由 标为克隆() / 分裂() 与出生保护负责，
+		# 不能从原体照搬 —— 照搬会让克隆体以为自己就是原体、带着原体的克隆列表，
+		# k4_is_clone / k4_是复制体 照搬更严重：分裂体会被标成克隆体
+		# （于是"不跑广播却跑克隆体启动"），克隆体也可能被标回本体。
+		# k4_克隆体编号 / k4_下次克隆编号 同理：编号是分配出来的固定身份，
+		# 照搬会让克隆体顶着原体的编号（或原体的计数器）。
+		if 是引擎状态 and (名 == "k4_clones" or 名 == "k4_clone_of" or 名 == "k4_alive" or 名 == "k4_出生帧" or 名 == "k4_is_clone" or 名 == "k4_是复制体" or 名 == "k4_克隆体编号" or 名 == "k4_下次克隆编号"):
 			continue
 		# ★值类型要**深拷贝**★
 		#   Dictionary / Array 是引用类型，直接 set 会让克隆体和原体**共享同一份**
@@ -1315,13 +1363,47 @@ func _克隆搬状态(体: Node) -> void:
 		else:
 			体.set(名, 值)
 
-func 标为克隆(_原体) -> void:
+## 发一个新的克隆体编号（**只增不减**，永不回收、永不回退）。
+##   ★克隆自己() 与 分裂() 共用这一个计数器★ —— K4 里两者是同一套编号，
+##   所以"克隆一个"和"分裂一个"都是 +1。
+func _分配克隆体编号() -> int:
+	k4_下次克隆编号 += 1
+	return k4_下次克隆编号
+
+## 把复制体（克隆体 / 分裂体）登记进本体的预算列表，并**钉上它的固定编号**。
+##   ★K4 里两者**共享同一份**"克隆体"计数★ —— 编号、数量、
+##   「第 n 号克隆体的属性」和 300 个的上限都走这一个列表。
+##   分裂如果另开一份预算，分裂 + 克隆就能各自顶到上限、实际翻倍。
+##   超上限 → 销毁**最老的**（照抄 K4 的 FIFO 淘汰：
+##   original_id_2_clone_id_list[原体] 超长时从头上 dispose_clone）。
+##   注意是 while 不是 if：一次多出来的可能不止一个。
+##   ⚠ 淘汰只把它从列表里摘掉，**编号不回收**（"只增不减"）。
+func _登记复制体(体: Node, _编号: int) -> void:
+	体.set("k4_克隆体编号", _编号)
+	体.set("k4_是复制体", true)
+	体.set("k4_clone_of", self)
+	k4_clones.append(体)
+	while k4_clones.size() > K4_每角色克隆上限:
+		var 最老 = k4_clones.pop_front()
+		if 最老 != null and is_instance_valid(最老):
+			最老.queue_free()
+
+## 标为克隆：由 克隆自己() 在**入树之后**再确认一次
+##   （入树之前已经用 set 标过一遍了 —— `add_sibling` 会立刻触发 _ready → 初始化，
+##    而 `初始化()` 就是按 `k4_是复制体` 决定要不要重置 k4_is_clone 的）。
+func 标为克隆(_归属) -> void:
 	k4_is_clone = true
-	k4_clone_of = _原体
+	k4_是复制体 = true
+	k4_clone_of = _归属
 	k4_clones.clear()
 
+## 「删除此克隆体」的实体侧。
+##   ★本体删不掉自己★：K4 里本体的"克隆体编号"是 0，这个积木对它无效。
+##   分裂体与克隆体都算 k4_是复制体 —— 两者都能删掉自己（用户确认的语义）。
 func 删除自己() -> void:
-	if k4_is_clone and k4_clone_of != null and is_instance_valid(k4_clone_of):
+	if not (k4_是复制体 or k4_is_clone):
+		return
+	if k4_clone_of != null and is_instance_valid(k4_clone_of):
 		k4_clone_of.k4_clones.erase(self)
 	k4_alive = false
 	# 把自己（含克隆体子树）里的声音播放器停掉再做 freed。
@@ -1359,7 +1441,7 @@ func _exit_tree() -> void:
 
 func _清音频(_节点: Node) -> void:
 	if _节点 is AudioStreamPlayer:
-		var p := _节点 as AudioStreamPlayer
+		var p = _节点 as AudioStreamPlayer
 		p.stop()
 		p.stream = null
 		# 主动释放播放器实例：进程退出时若它还挂在"已播放"状态，
@@ -1391,15 +1473,44 @@ func 重置计时器() -> void:
 # =============================================================================
 # 取值兜底（生成代码照常调用，返回默认值）
 # =============================================================================
+## 「克隆体编号」：本体 0，复制体 = 创建时分配的那个编号（**只增不减**）。
+##   ★判的是 k4_是复制体★ —— 分裂体也有编号（分裂与克隆体共用同一套编号）。
+##   ⚠ 不要退回成"在 k4_clones 里的下标 +1"：删掉一个复制体之后，
+##     后面所有复制体的编号都会 -1 → 拿编号当键的作品立刻引用错位
+##     （分裂测试正是：先把编号记进列表，再按编号去读"第 n 号克隆体的属性"）。
 func 克隆体编号() -> float:
-	if not k4_is_clone or k4_clone_of == null:
+	if not k4_是复制体:
 		return 0.0
-	return float(k4_clone_of.k4_clones.find(self) + 1)
+	return float(k4_克隆体编号)
 
+## 「克隆体数量」：复制体问的是"我们兄弟一共几个"，本体问的是"我生了几个"。
+##   分裂体也算在内（共享同一份计数）。
 func 克隆体数量() -> float:
 	if k4_clone_of != null:
 		return float(k4_clone_of.k4_clones.size())
 	return float(k4_clones.size())
+
+## 本角色的"原型"：复制体 → 它的原体 / 分裂源；本体 → 自己。
+##   K4 读"第 n 号克隆体的属性"时，目标本身若是克隆体，要先回到原型再按序号查
+##   （get_clone_index_property 里的 get_prototype_actor_id()）。
+func 原型() -> 角色基类:
+	if k4_是复制体 and k4_clone_of != null and is_instance_valid(k4_clone_of):
+		return k4_clone_of
+	return self
+
+## 「第 n 号克隆体」的实体：0 = 本体（原型自己），1..n = **编号为 n** 的那个复制体。
+##   ★分裂体也在 k4_clones 里★ —— K4 的"克隆体"是克隆 + 分裂的总称。
+##   ★必须**按编号查**，不是按列表下标★ —— 编号是"只增不减"的固定身份，
+##     而列表会随删除收缩：按下标查的话，中间死掉一个，后面全体前移，
+##     同一条编号就读到了**另一个克隆体**（这就是"引用错误"）。
+##   找不到（那个克隆体已经死了 / 编号从未分配）时返回 null，调用方给默认值。
+func 取克隆体(_编号: int) -> 角色基类:
+	if _编号 <= 0:
+		return self
+	for 体 in 原型().k4_clones:
+		if 体 != null and is_instance_valid(体) and int(体.get("k4_克隆体编号")) == _编号:
+			return 体 as 角色基类
+	return null
 
 func 自己的名字() -> String:
 	return String(name)

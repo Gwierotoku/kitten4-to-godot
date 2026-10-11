@@ -1,4 +1,4 @@
-﻿/*! 新版本 - 积木 → 中文方法名映射表（单一上游，改这里全项目生效）
+/*! 新版本 - 积木 → 中文方法名映射表（单一上游，改这里全项目生效）
  *
  * 两层：
  *   1. IR_METHODS   : IR 操作码 → 方法（153 条，多个块类型共享）
@@ -526,6 +526,10 @@
     //   实现在 角色基类.gd（BASE_METHODS 里已登记）。
     clone_index:   { name: '克隆体编号', params: [], ret: 'f' },
     clone_count:   { name: '克隆体数量', params: [], ret: 'f' },
+    // 「<角色> 第 n 号克隆体的 属性 / 变量」—— core.js 的 get_clone_index_property
+    //   编号 0 = 本体，1.. = 第 n 个克隆体（分裂体也算在克隆体里，见 角色基类.分裂）
+    //   属性是 'x' … 'height'，或者 'var:<变量名>'（读那个克隆体自己的变量）
+    clone_property: { name: '克隆体属性', params: [['目标','v'],['编号','v'],['属性','v']], ret: 'v' },
 
     /* —— 询问 / 调用 —— */
     ask:           { name: '询问并等待', params: [['ctx','ctx'],['问题','v']], ret: 's', await: true },

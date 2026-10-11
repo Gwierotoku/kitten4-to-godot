@@ -729,9 +729,23 @@
       //   实测症状（射击生存 蓄力模式）：两条射线关于"正下方"对称，而不是关于
       //   射击手朝向对称 —— 因为 角色属性("射击手","3") 恒等于 0。
       case 'get_3':
-      case 'get':
+      case 'get': {
+        // ★attribute 也可能是**变量 uuid**★（属性下拉框里能选到角色变量）
+        //   实测 游戏-空白作品：子弹的条件里 `(角色) 的 (眩晕)` 传进来的就是
+        //   眩晕的 uuid —— 以前原样丢给运行时，_读属性 认不出 → 恒为 0，
+        //   于是"只有眩晕/迅捷状态才能开火"那条判断永远不成立。
+        //   这里把它标成 `var:<名字>`，运行时按"读那个角色的变量"处理
+        //   （和 get_clone_index_property 的变量分支同一套约定）。
+        var 原属性 = String(F('attribute', '0'));
+        var 属性是变量 = false;
+        if (this.names && 原属性) {
+          var 解析属性名 = this.names.resolve('vars', 原属性);
+          属性是变量 = !!解析属性名 && 解析属性名 !== 原属性;
+        }
+        var 属性键 = 属性是变量 ? ('var:' + this.varName(原属性)) : 原属性;
         return op('entity_property',
-          [str(String(F('attribute', '0'))), str(this.entityName(F('sprite', '__self')))]);
+          [str(属性键), str(this.entityName(F('sprite', '__self')))]);
+      }
 
       // 随机数
       case 'random':
@@ -927,8 +941,45 @@
       case 'get_clone_num':
         // 「克隆体数量」
         return op('clone_count', []);
-      case 'get_clone_index_property':
-        return op('self_name', []);
+      // 「<角色> 编号 <n> 克隆体的 <属性 / 变量>」—— K4 的 get_clone_index_property
+      //
+      // ★★以前这里写的是 `return op('self_name', [])`★★ —— 整个积木被丢成
+      //   「自己的名字」，于是 游戏-空白作品 里 115 处
+      //   「敌人的第 n 号克隆体的 敌人buff / X坐标 / Y坐标」全部变成
+      //   角色.自己的名字()（用户实测原话："克隆体的有关积木被完全丢弃了"）。
+      //
+      // 字段实测（_dev/probe_blocks.js）：
+      //   fields.sprite    = 目标角色 uuid（或 "__self"）
+      //   shadows.index    = 克隆体**顺序号**：0 = 本体，1.. = 第 n 个克隆体
+      //   fields.attribute = "0".."17"（属性下标）**或者一个变量 uuid**
+      //
+      // 下标表逐字抄自 K4 Ultra（kitten.*.js 里 e.x="0" … e.height="17"）：
+      //   x y style_index rotation style_name size volume color alpha
+      //   brightness pixelate displacement twist grey ascii speed width height
+      //
+      // attribute 是变量 uuid 时，读的是**那个克隆体自己的变量**
+      // （K4: get_variable(l, undefined, f.get_id())），所以这里把变量名标成
+      // `var:<名字>` 交给运行时区分"读属性"还是"读变量"。
+      case 'get_clone_index_property': {
+        var 目标字段 = String(this.field(block, 'sprite', '__self') || '__self');
+        var 目标名 = 目标字段 === '__self' ? '' : this.entityName(目标字段);
+        var 原属性 = String(this.field(block, 'attribute', '0') || '0');
+        var 属性表 = ['x', 'y', 'style_index', 'rotation', 'style_name', 'size', 'volume',
+          'color', 'alpha', 'brightness', 'pixelate', 'displacement', 'twist', 'grey',
+          'ascii', 'speed', 'width', 'height'];
+        var 是变量 = false;
+        if (this.names && 原属性) {
+          var 解析名 = this.names.resolve('vars', 原属性);
+          是变量 = !!解析名 && 解析名 !== 原属性;
+        }
+        var 属性键 = 是变量 ? ('var:' + this.varName(原属性))
+                            : (属性表[parseInt(原属性, 10)] || 'x');
+        return op('clone_property', [
+          str(目标名),
+          A2(['index', 'INDEX']),
+          str(属性键)
+        ]);
+      }
       case 'user_id_get':
         // 「用户ID」——K4 是云平台账号 id。这里做成 op（可覆写），本地化成一个固定值。
         //   ⚠ 以前直接 `return str('player')` —— 生成出来是**字面量** "player"，

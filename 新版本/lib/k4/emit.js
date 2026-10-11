@@ -1804,12 +1804,26 @@ Emitter.prototype.stmtLines = function (stmt, ctx, indent) {
   }
 
   // 「告诉角色执行…」（tell / tell_sync）：目标是角色名，proc 是自动登记的过程名
+  //
+  // ★★单例化之后必须走 K4Func★★
+  //   tell 登记出来的过程（tell_1 …）和用户自定义积木一样，生成在
+  //   `全局/角色自定义积木.gd`（= 函数单例层），签名是 `func tell_1(角色, ctx)`
+  //   —— 首参就是"以谁的身份跑"。
+  //   老写法 `目标.tell_1(ctx)` 在角色节点上找不到这个方法，运行时报
+  //     Invalid call. Nonexistent function 'tell_1' in base 'Node2D (角色.gd)'
+  //   （实测 游戏-空白作品：画笔的「当接收到广播_新手教程_6」里那一处）。
+  //   正确写法是把**目标角色当作首参**传进单例：K4Func.tell_1(目标, ctx)。
   if (k === 'tell' || k === 'tell_sync') {
     out.push(note('告诉 ' + (stmt.target || '自己') + ' 执行', stmt.blockId));
     var tgt = stmt.target ? '角色.找(' + gdStr(String(stmt.target)) + ')' : '角色';
     var tname = procIdent(stmt.proc || '未命名积木');
     // 目标过程是不是协程由它的**函数体**决定（找不到定义时保守 await）
-    out.push(pad + (this.过程是协程(stmt.proc) ? 'await ' : '') + tgt + '.' + tname + '(ctx)');
+    var 等 = this.过程是协程(stmt.proc) ? 'await ' : '';
+    if (走单例(this, stmt.proc) || 走单例(this, tname)) {
+      out.push(pad + 等 + FUNC_SINGLETON + '.' + tname + '(' + tgt + ', ctx)');
+    } else {
+      out.push(pad + 等 + tgt + '.' + tname + '(ctx)');
+    }
     return out;
   }
 

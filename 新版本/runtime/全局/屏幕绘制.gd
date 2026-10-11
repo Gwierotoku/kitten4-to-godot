@@ -93,7 +93,20 @@ class 烘焙器 extends Node2D:
 		for 项 in 待画:
 			var t: String = str(项.get("t", ""))
 			if t == "line":
-				draw_line(项["a"], 项["b"], 项["c"], 项["w"])
+				# ★必须与 _draw() 里的同名分支逐字一致★
+				#   起终点重合时 draw_line 什么都不画（零长度线段），
+				#   而 K4 的笔刷是圆头的：原地落笔应当是一个直径=粗细的圆点。
+				if 项["a"].distance_squared_to(项["b"]) < 0.25:
+					draw_circle(项["a"], maxf(float(项["w"]), 1.0) * 0.5, 项["c"])
+				else:
+					draw_line(项["a"], 项["b"], 项["c"], 项["w"])
+					# ★两端补圆点 = 圆头线帽★
+					#   K4/Scratch 的笔刷是圆头的：线段的两端（**包括结束点**）
+					#   各凸出一个"半径 = 粗细/2"的半圆；Godot 的 draw_line 两端是**平的**。
+					#   两端都补还顺带把折线的拐角磨圆（每段的终点圆点正好压在拐角上）。
+					var 半径 := maxf(float(项["w"]), 1.0) * 0.5
+					draw_circle(项["a"], 半径, 项["c"])
+					draw_circle(项["b"], 半径, 项["c"])
 			elif t == "stamp":
 				var 纹: Texture2D = 项["tex"]
 				var 变: Transform2D = 项["xform"]
@@ -463,7 +476,23 @@ func _draw() -> void:
 		var t: String = str(项.get("t", ""))
 		match t:
 			"line":
-				draw_line(项["a"], 项["b"], 项["c"], 项["w"])
+				# ★原地落笔 = 一个圆点；线段两端 = 圆头★
+				#   K4/Scratch 的笔刷是**圆头**的：
+				#     · 落笔之后不移动 → 一个"直径 = 画笔粗细"的圆点；
+				#     · 画一条线 → 两端各凸出一个"半径 = 粗细/2"的半圆
+				#       （**结束点也是圆的**）。
+				#   而 Godot 的 draw_line：零长度线段**什么都不画**、两端是**平的** ——
+				#   实测 alpha_drawpoint.bcm4 的「圆」角色（落笔 → 粗细+1 → 抬笔、
+				#   全程不移动）紫色像素恒为 0；线段两端也比 K4 少一块。
+				#   ⚠ 烘焙器._draw() 里有同名分支，必须逐字一致，
+				#     否则"烘焙前 / 烘焙后"的笔画会不一样。
+				if 项["a"].distance_squared_to(项["b"]) < 0.25:
+					draw_circle(项["a"], maxf(float(项["w"]), 1.0) * 0.5, 项["c"])
+				else:
+					draw_line(项["a"], 项["b"], 项["c"], 项["w"])
+					var 半径 := maxf(float(项["w"]), 1.0) * 0.5
+					draw_circle(项["a"], 半径, 项["c"])
+					draw_circle(项["b"], 半径, 项["c"])
 			"stamp":
 				_画图章(项)
 			"text":

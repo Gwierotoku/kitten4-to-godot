@@ -116,14 +116,14 @@ func _舞台半(角色: 角色变量) -> Vector2:
 
 ## 鼠标在 K4 坐标系里的位置
 func _鼠标K4(角色: 角色变量) -> Vector2:
-	var m := 角色.get_viewport().get_mouse_position()
-	var 层 := 角色.get_parent() as Node2D
+	var m = 角色.get_viewport().get_mouse_position()
+	var 层 = 角色.get_parent() as Node2D
 	var 原点: Vector2 = 层.global_position if 层 != null else _舞台半(角色)
 	return Vector2(m.x - 原点.x, -(m.y - 原点.y))
 
 ## 把「目标」实参解析成一个具体的角色节点；解析不到返回 null
 func _目标节点(角色: 角色变量, _目标: Variant) -> Node:
-	var 名 := str(_目标)
+	var 名 = str(_目标)
 	if 名 == "" or 名 == "__self" or 名 == "自己":
 		return 角色
 	return 角色.找(名)
@@ -136,12 +136,12 @@ func _目标节点(角色: 角色变量, _目标: Variant) -> Node:
 
 
 func 包围盒(角色: 角色变量) -> Rect2:
-	var 本帧 := Engine.get_process_frames()
+	var 本帧 = Engine.get_process_frames()
 	if 角色._包围盒帧号 == 本帧:
 		return 角色._包围盒缓存
 	角色._包围盒帧号 = 本帧
-	var 纹 := 角色.当前纹理()
-	var 尺寸 := Vector2(16.0, 16.0)
+	var 纹 = 角色.当前纹理()
+	var 尺寸 = Vector2(16.0, 16.0)
 	if 纹 != null:
 		尺寸 = 纹.get_size() * 角色.scale
 	# K4 坐标：y 向上。这里只求 min/max，方向不重要。
@@ -150,7 +150,7 @@ func 包围盒(角色: 角色变量) -> Rect2:
 
 ## 越界了吗（碰到边缘）
 func _出界(角色: 角色变量) -> bool:
-	var 半 := _舞台半(角色)
+	var 半 = _舞台半(角色)
 	return 角色.k4_x < -半.x or 角色.k4_x > 半.x or 角色.k4_y < -半.y or 角色.k4_y > 半.y
 
 ## 改完 k4_x/k4_y/k4_direction 之后统一走这里：落节点属性 + 若在落笔就画线
@@ -167,7 +167,7 @@ func _移动后(角色: 角色变量) -> void:
 func _转颜色(角色: 角色变量, _v: Variant) -> Color:
 	if _v is Color:
 		return _v
-	var s := str(_v).strip_edges()
+	var s = str(_v).strip_edges()
 	if s.begins_with("#"):
 		if s.length() == 9:
 			return Color.html(s)
@@ -180,7 +180,7 @@ func _转颜色(角色: 角色变量, _v: Variant) -> Color:
 
 ## 秒数一律走 K4 语义（负数当 0）
 func _秒(角色: 角色变量, _v: Variant) -> float:
-	var s := 角色._转数值(_v)
+	var s = 角色._转数值(_v)
 	return 0.0 if s < 0.0 else s
 
 # 同一个"这个积木还没实现 / 参数没解析出来"的提示**只报一次** ——
@@ -220,7 +220,7 @@ func _apply_transform(角色: 角色变量) -> void:
 	# ⚠ k4_flip_y 必须在这里一起烘进去 —— 以前「上下翻转」是直接改 容器.scale.y 的，
 	#   而本函数每次 _移动后() 都会把 容器.scale 整个重写一遍，
 	#   于是上下翻转活不过一个「移动 10 步」。
-	var 容器 := 角色.get_node_or_null("customs") as Node2D
+	var 容器 = 角色.get_node_or_null("customs") as Node2D
 	if 容器 != null:
 		容器.scale = Vector2(-1.0 if 角色.k4_flip_x else 1.0, -1.0 if 角色.k4_flip_y else 1.0)
 	# ★旋转模式★（K4 的「设置 旋转模式为 …」）
@@ -229,7 +229,7 @@ func _apply_transform(角色: 角色变量) -> void:
 		"flip":
 			# 左右翻转：角色不跟着转，只按"面朝左 / 右"把图片翻过来
 			角色.rotation = 0.0
-			var 朝左 := absf(fposmod(角色.k4_direction + 180.0, 360.0) - 180.0) > 90.0
+			var 朝左 = absf(fposmod(角色.k4_direction + 180.0, 360.0) - 180.0) > 90.0
 			if 容器 != null:
 				容器.scale.x = -1.0 if 朝左 else 1.0
 		"none":
@@ -252,15 +252,15 @@ func _apply_transform(角色: 角色变量) -> void:
 ##   本函数按"角色名**或**组名"取节点：先当角色找，找不到再当组找 ——
 ##   K4 的积木（如「将 <新角色组> 在 1 秒内 逐渐显示」）分不清这两者，也不需要分清。
 func 实体节点们(角色: 角色变量, _目标: Variant) -> Array:
-	var 名 := str(_目标).strip_edges()
+	var 名 = str(_目标).strip_edges()
 	if 名 == "" or 名 == "自己" or 名 == "__self":
 		return [角色]
-	var 找 := _目标节点(角色, _目标)
+	var 找 = _目标节点(角色, _目标)
 	if 找 != null:
 		return [找]
 	if not is_instance_valid(角色):
 		return []          # ★注意返回类型是 Array，这里不能裸 return（= null）★
-	var 树 := 角色.get_tree()
+	var 树 = 角色.get_tree()
 	if 树 == null:
 		return []
 	return 树.get_nodes_in_group("K4组_" + 名)
@@ -269,7 +269,7 @@ func 实体节点们(角色: 角色变量, _目标: Variant) -> Array:
 ##   实测 fields.role_camp = camp_red | camp_yellow | camp_blue | no_camp
 ##   ⚠ K4 内部把界面上的"绿色阵营"存成 `camp_yellow`（按界面 4 种映射即可）。
 ##   阵营是**单选**：先清掉自己身上所有阵营标签，再加新的。
-const _阵营组 := {
+const _阵营组 = {
 	"camp_red": "K4阵营_红",
 	"camp_yellow": "K4阵营_绿",
 	"camp_blue": "K4阵营_蓝",
@@ -303,7 +303,7 @@ func 拖拽输入(角色: 角色变量, _event: InputEvent) -> void:
 	if not 角色.k4_draggable:
 		return
 	if _event is InputEventMouseButton:
-		var 鼠 := _event as InputEventMouseButton
+		var 鼠 = _event as InputEventMouseButton
 		if 鼠.button_index != MOUSE_BUTTON_LEFT:
 			return
 		if 鼠.pressed:
@@ -311,7 +311,7 @@ func 拖拽输入(角色: 角色变量, _event: InputEvent) -> void:
 		else:
 			角色._k4拖拽中 = false
 	elif _event is InputEventMouseMotion and 角色._k4拖拽中:
-		var 点 := _鼠标K4(角色)
+		var 点 = _鼠标K4(角色)
 		角色.k4_x = 点.x
 		角色.k4_y = 点.y
 		_移动后(角色)
@@ -321,7 +321,7 @@ func 拖拽输入(角色: 角色变量, _event: InputEvent) -> void:
 ##     0 = 自由旋转（默认）  1 = 左右翻转  2 = 不旋转
 ##   ⚠ 这张表是从"界面下拉顺序 vs 数据取值"推出来的（实测三个块的值是 2 / 1 / 0，
 ##     而界面顺序是 自由 / 左右 / 不旋转）。若你实测发现反了，改这张表即可。
-const _旋转模式表 := { "0": "free", "1": "flip", "2": "none" }
+const _旋转模式表 = { "0": "free", "1": "flip", "2": "none" }
 
 func 设置旋转模式(角色: 角色变量, _模式: Variant) -> void:
 	角色.k4_rotation_style = _旋转模式表.get(str(_模式).strip_edges(), "free")
@@ -330,27 +330,27 @@ func 设置旋转模式(角色: 角色变量, _模式: Variant) -> void:
 ## 「抖动 <n> 秒」——阻塞式：抖完才继续下一个积木。
 ##   实现成"左右快速来回偏移"，**不改 k4_x/k4_y**（抖完自动回到原位）。
 func 抖动(角色: 角色变量, _秒: Variant) -> void:
-	var 总 := _秒(角色, _秒)
+	var 总 = _秒(角色, _秒)
 	if 总 <= 0.0:
 		return
-	var 原位置 := 角色.position
-	var 次数 := int(maxf(4.0, 总 * 12.0))
-	var tw := 角色.create_tween()
+	var 原位置 = 角色.position
+	var 次数 = int(maxf(4.0, 总 * 12.0))
+	var tw = 角色.create_tween()
 	for i in 次数:
-		var 偏移 := 6.0 if (i % 2 == 0) else -6.0
+		var 偏移 = 6.0 if (i % 2 == 0) else -6.0
 		tw.tween_property(角色, "position", 原位置 + Vector2(偏移, 0.0), 总 / float(次数))
 	tw.tween_property(角色, "position", 原位置, 0.02)
 	await tw.finished
 
 ## 「围绕 <角色> 旋转 <n> 度」——以目标角色为圆心，把自己沿圆周转 n 度
 func 围绕旋转(角色: 角色变量, _目标: Variant, _度: Variant) -> void:
-	var 心 := _目标节点(角色, _目标)
+	var 心 = _目标节点(角色, _目标)
 	if 心 == null or 心 == 角色:
 		return
-	var 度 := 角色._转数值(_度)
-	var 相对 := Vector2(角色.k4_x - 心.k4_x, 角色.k4_y - 心.k4_y)
+	var 度 = 角色._转数值(_度)
+	var 相对 = Vector2(角色.k4_x - 心.k4_x, 角色.k4_y - 心.k4_y)
 	# K4 的 y 轴向上、Godot 的 y 轴向下 —— 角度取反才和 K4 的旋转方向一致
-	var 新 := 相对.rotated(deg_to_rad(-度))
+	var 新 = 相对.rotated(deg_to_rad(-度))
 	角色.k4_x = 心.k4_x + 新.x
 	角色.k4_y = 心.k4_y + 新.y
 	角色.k4_direction += 度
@@ -358,7 +358,7 @@ func 围绕旋转(角色: 角色变量, _目标: Variant, _度: Variant) -> void
 
 ## 「<角色> 新建对话框 <文本>」——让**指定角色**说话（目标为空 = 自己）
 func 新建对话框(角色: 角色变量, _目标: Variant, _文本: Variant) -> void:
-	var 名 := str(_目标).strip_edges()
+	var 名 = str(_目标).strip_edges()
 	if 名 == "" or 名 == "自己" or 名 == "__self":
 		说(角色, _文本)
 		return
@@ -369,20 +369,20 @@ func 新建对话框(角色: 角色变量, _目标: Variant, _文本: Variant) -
 ## 「将角色的 <宽度 / 高度> <增加 / 减少> <n>」——set_width_height_scale 的姊妹块
 ##   实参：(_轴, _方向, _值)；_值 是**百分比增量**（和 K4 界面上的数字一致）
 func 增加宽高缩放(角色: 角色变量, _轴: Variant, _方向: Variant, _值: Variant) -> void:
-	var 轴 := str(_轴).strip_edges().to_lower()
-	var 是y := 轴.begins_with("h")
+	var 轴 = str(_轴).strip_edges().to_lower()
+	var 是y = 轴.begins_with("h")
 	# 该轴当前的**绝对百分比** = 统一大小 × 该轴系数
-	var 当前 := 角色.k4_size_percent * (角色._k4_高缩放 if 是y else 角色._k4_宽缩放)
+	var 当前 = 角色.k4_size_percent * (角色._k4_高缩放 if 是y else 角色._k4_宽缩放)
 	设置宽高缩放(角色, 轴, 当前 + 角色._转数值(_值) * _符号方向(角色, _方向))
 
 ## 「在 <n> 秒内 逐渐显示 / 隐藏」「将 <目标> 显示 / 隐藏」「将 <目标> 在 <n> 秒内 逐渐…」
 ##   模式：show / hide（瞬变）、grad_show / grad_hide（渐变）
 ##   ★目标可以是**角色**，也可以是**角色组**★（K4 的组 = Godot 原生 group）
 func 显示隐藏实体(角色: 角色变量, _目标: Variant, _模式: Variant, _秒: Variant) -> void:
-	var 模 := str(_模式).strip_edges().to_lower()
-	var 渐变 := 模.begins_with("grad")
-	var 显示 := 模.find("show") >= 0 or 模.find("显示") >= 0
-	var 总 := _秒(角色, _秒) if 渐变 else 0.0
+	var 模 = str(_模式).strip_edges().to_lower()
+	var 渐变 = 模.begins_with("grad")
+	var 显示 = 模.find("show") >= 0 or 模.find("显示") >= 0
+	var 总 = _秒(角色, _秒) if 渐变 else 0.0
 	for 角 in 实体节点们(角色, _目标):
 		if 角 == null or not is_instance_valid(角):
 			continue
@@ -452,7 +452,7 @@ func 设置屏幕切换特效(角色: 角色变量, _效果: Variant, _方向: V
 ##   于是"停止当前角色的其他脚本"会把别的角色停掉，
 ##   而"停止其他角色的脚本"（scope=4）直接落到默认的"停止全部"。
 func 停止(角色: 角色变量, _选项: Variant) -> void:
-	var 选 := str(_选项).to_lower()
+	var 选 = str(_选项).to_lower()
 	if 选.begins_with("all") or 选 == "全部":
 		# K4 的「停止全部」= 所有脚本停止往下跑（角色和画面都还在）。
 		# ⚠ **绝对不能用 `get_tree().paused = true`**：
@@ -477,7 +477,7 @@ func 停止(角色: 角色变量, _选项: Variant) -> void:
 ##   节点结构：基础角色层 → 角色 → 帽子（每个帽子 = 一个脚本/协程），
 ##   所以"本角色的其他脚本"就是自己的**兄弟节点**。
 func _停同角色的其他脚本(角色: 角色变量) -> void:
-	var 父 := 角色.get_parent()
+	var 父 = 角色.get_parent()
 	if 父 == null:
 		return
 	for 子 in 父.get_children():
@@ -490,7 +490,7 @@ func _停同角色的其他脚本(角色: 角色变量) -> void:
 ## 停掉**其他角色**（含它们的克隆体）的脚本。
 ##   其他角色 = 同一个「基础角色层」里的兄弟节点。
 func _停其他角色(角色: 角色变量) -> void:
-	var 层 := 角色.get_parent()
+	var 层 = 角色.get_parent()
 	if 层 == null:
 		return
 	for 节点 in 层.get_children():
@@ -500,7 +500,7 @@ func _停其他角色(角色: 角色变量) -> void:
 
 ## 递归把整棵树上的角色脚本标停（「停止全部」用）
 func _停整棵树(角色: 角色变量, _节点: Node) -> void:
-	var 角 := _节点 as 角色基类
+	var 角 = _节点 as 角色基类
 	if 角 != null:
 		角.k4_alive = false
 	# ⚠ 同样不能写 `_节点 as 帽子基类`（循环类型依赖），走鸭子类型
@@ -514,22 +514,38 @@ func _停整棵树(角色: 角色变量, _节点: Node) -> void:
 ##     "分裂是深度复制，像普通角色一样，不是克隆体"）：
 ##       · 克隆（mirror）→ 产生**克隆体**：k4_is_clone = true，
 ##         会跑「当作为克隆体启动」，原体被删掉时跟着一起删。
-##       · 分裂（clone） → 复制出一个**普通角色实例**：不是克隆体、
-##         不跑「当作为克隆体启动」，深度复制源角色**此刻**的状态。
+##       · 分裂（clone） → 复制出一个**普通角色实例**：k4_is_clone = false，
+##         不跑「当作为克隆体启动」，但**会跑其它一般帽子**（广播 / 按键 /
+##         点击 / 条件 / 屏幕切换…），深度复制源角色**此刻**的状态。
+##
+##   ★★"共享克隆体的那一套"★（用户确认的 K4 语义）★
+##     分裂体照样登记进 源的 k4_clones，于是：
+##       · 克隆体编号() / 克隆体数量() 都把它算进去；
+##       · 「<角色> 第 n 号克隆体的 属性/变量」能按序号取到它；
+##       · 300 个的预算上限是与克隆体**共用同一个**（不是各算各的）。
+##
+##   ★绿旗对分裂体不执行★（见 帽子_开始._触发条件满足）。
+##     否则"分裂体出生 → 它自己那条绿旗脚本再分裂一个"会滚成**指数爆炸**；
+##     K4 里这条链是"每帧分裂一个"的线性增长。
+##
 ##   实参：(_目标 角色名；空 = 本角色, _x, _y 落点)
 static var _分裂序号: int = 0
 
 func 分裂(角色: 角色变量, _目标: Variant, _x: Variant, _y: Variant) -> Node:
 	var 源: 角色基类 = 角色
-	var 名 := str(_目标)
+	var 名 = str(_目标)
 	if 名 != "":
-		var 找到 := _目标节点(角色, _目标) as 角色基类
+		var 找到 = _目标节点(角色, _目标) as 角色基类
 		if 找到 != null:
 			源 = 找到
-	var 父 := 源.get_parent()
+	# 复制体不能再当"源"：K4 里克隆体的克隆体先回到原型再分裂，
+	# 否则会分裂出一个"孤立的克隆体"，编号/数量全部对不上。
+	if 源.k4_是复制体 and 源.k4_clone_of != null and is_instance_valid(源.k4_clone_of):
+		源 = 源.k4_clone_of
+	var 父 = 源.get_parent()
 	if 父 == null:
 		return null
-	var 新 := 源.duplicate()
+	var 新 = 源.duplicate()
 	if 新 == null:
 		return null
 	# duplicate() 出来的节点可能**没有脚本**（和 克隆自己() 里遇到的是同一个坑）
@@ -537,21 +553,46 @@ func 分裂(角色: 角色变量, _目标: Variant, _x: Variant, _y: Variant) ->
 		新.set_script(源.get_script())
 	_分裂序号 += 1
 	新.name = str(源.name) + "_分裂" + str(_分裂序号)
-	# 「不是克隆体」：清掉克隆关系，让它就是一个普通角色
-	新.set("k4_is_clone", false)
-	新.set("k4_clone_of", null)
+	# ★入树**之前**就要标好关系★
+	#   `add_child()` 会**立刻**触发分裂体自己的 `_ready()`，而帽子基类 /
+	#   帽子_广播 / 帽子_开始 的 `_ready` 里要读 k4_is_clone / k4_是复制体
+	#   来决定"注册不注册监听、跑不跑绿旗"（和 克隆自己() 里是同一个坑）。
+	新.set("k4_is_clone", false)        # 分裂体不是克隆体 → 不跑「当作为克隆体启动」
+	新.set("k4_是复制体", true)         # 但它是复制体 → 绿旗不跑
+	新.set("k4_clone_of", 源)
 	新.set("k4_clones", [])
-	# ★先入树、再搬状态★ —— 入树会触发克隆体自己的 _ready()（初始化 + 变量初值），
+	# ★先入树、再搬状态★ —— 入树会触发它自己的 _ready()（初始化 + 变量初值），
 	#   把先搬进去的值覆盖回初值（和 克隆自己() 里是同一个坑，见那边的长注释）。
 	父.add_child(新)
 	源._克隆搬状态(新)
+	# ★关系字段最后再盖一次★
+	#   `_克隆搬状态()` 会把 k4_ 前缀的成员从源搬过来（源自己可能就是个克隆体），
+	#   k4_is_clone / k4_是复制体 一并会被覆盖 —— 不盖回去，分裂体就变成克隆体了：
+	#   表现为"分裂体不再响应广播/按键，却开始响应克隆体启动"。
+	新.set("k4_is_clone", false)
+	新.set("k4_是复制体", true)
+	新.set("k4_clone_of", 源)
 	# 落点最后设：它要覆盖从源搬过来的位置
 	新.set("k4_x", 角色._转数值(_x))
 	新.set("k4_y", 角色._转数值(_y))
-	新.call("_移动后")
+	# ★单例化之后不能再写 `新.call("_移动后")`★
+	#   `_移动后` 已经搬到函数单例上、而且首参是 角色（等价迁移的产物）；
+	#   旧写法在运行时报
+	#     Invalid call. Nonexistent function '_移动后 (via call)' in base 'Node2D (新角色.gd)'
+	#   于是 分裂() 在这里中断 —— 后面的 `_登记复制体` 根本没执行，
+	#   分裂体不进 k4_clones → 拿不到编号、数量也不算它（实测就是这样）。
+	var 新角 = 新 as 角色变量
+	if 新角 != null:
+		_移动后(新角)
+	# ★共享克隆体预算与编号★
+	#   编号由**源（原型）**上的单调计数器分配 —— 与 克隆自己() 共用同一套
+	#   （`_分配克隆体编号()` + `_登记复制体()`，两边都走这两个方法）。
+	源._登记复制体(新, 源._分配克隆体编号())
 	return 新
 
 ## 「删除此克隆体」
+##   K4 里这个积木**对本体无效**（本体的克隆体编号是 0）—— 判定在 角色基类.删除自己()，
+##   分裂体和克隆体都算"复制体"，都能删掉自己。
 func 删除克隆体(角色: 角色变量) -> void:
 	角色.删除自己()
 
@@ -567,7 +608,7 @@ func 删除克隆体(角色: 角色变量) -> void:
 ## 克隆体继承的是目标角色**当前**的状态（位置/大小/造型/可见性），
 ## 所以这里**不要**去调 他.初始化()（那会把目标角色重置回初始态）。
 func 克隆_角色(角色: 角色变量, _目标: Variant) -> Node:
-	var 他 := _目标节点(角色, _目标) as 角色基类
+	var 他 = _目标节点(角色, _目标) as 角色基类
 	if 他 == null or 他 == 角色:
 		return 角色.克隆自己()
 	return 他.克隆自己()
@@ -580,17 +621,17 @@ func 等待_秒(角色: 角色变量, ctx: 角色基类.WarpCtx, _p_秒: Variant
 	#   直接收尾（标记取消，循环末尾会 break）。
 	if not is_instance_valid(角色):
 		return
-	var 树 := 角色.get_tree()
+	var 树 = 角色.get_tree()
 	if 树 == null:
 		ctx._已取消 = true
 		return
 	await 树.create_timer(_p_秒).timeout
 	"""
-	var 剩 := _秒(_p_秒)
+	var 剩 = _秒(_p_秒)
 	if 剩 <= 0.0:
 		await 一步(ctx)
 		return
-	var 终 := Time.get_ticks_msec() + int(剩 * 1000.0)
+	var 终 = Time.get_ticks_msec() + int(剩 * 1000.0)
 	while Time.get_ticks_msec() < 终:
 		await 一步(ctx)
 		if not k4_alive or ctx._已取消:
@@ -615,11 +656,11 @@ func 等待直到(角色: 角色变量, ctx: 角色基类.WarpCtx, _条件: Vari
 ## 「调用/同步 <目标> 的 <积木>」——K4 的跨角色同步调用
 ## 参数一般是 [积木名, 参数数组]；目标为 "__self" 时调自己
 func 调用_同步(角色: 角色变量, ctx: 角色基类.WarpCtx, _目标: Variant, _参数: Variant) -> void:
-	var 谁 := _目标节点(角色, _目标)
+	var 谁 = _目标节点(角色, _目标)
 	if 谁 == null:
 		return
 	var 包: Variant = _参数
-	var 名 := ""
+	var 名 = ""
 	var 实参: Array = []
 	if 包 is Array and (包 as Array).size() > 0:
 		名 = str(包[0])
@@ -687,7 +728,7 @@ func 将坐标设为(角色: 角色变量, _轴: Variant, _值: Variant) -> void
 ##   ⚠ 以前这个符号**根本没传给运行时**（emit 的 ARG 表漏了 'sign'），
 ##     于是「把 y 坐标减少 200」生成的是 `将坐标增加("y", 200.0)` —— 方向正好相反。
 func 将坐标增加(角色: 角色变量, _轴: Variant, _值: Variant, _符号: Variant = 1) -> void:
-	var 增 := 角色._转数值(_值) * _符号方向(角色, _符号)
+	var 增 = 角色._转数值(_值) * _符号方向(角色, _符号)
 	if str(_轴).to_lower() == "y":
 		角色.k4_y += 增
 	else:
@@ -701,7 +742,7 @@ func _符号方向(角色: 角色变量, _符号: Variant) -> float:
 		return 1.0 if _符号 else -1.0
 	if _符号 is float or _符号 is int:
 		return -1.0 if float(_符号) < 0.0 else 1.0
-	var s := str(_符号).strip_edges().to_lower()
+	var s = str(_符号).strip_edges().to_lower()
 	if s.find("decrease") >= 0 or s.find("减") >= 0 or s == "-1" or s == "false":
 		return -1.0
 	return 1.0
@@ -714,17 +755,17 @@ func 移到x_y(角色: 角色变量, _x: Variant, _y: Variant) -> void:
 
 ## 「移到 <鼠标指针 / 随机位置 / 角色名>」
 func 移到_目标(角色: 角色变量, _目标: Variant) -> void:
-	var 名 := str(_目标)
+	var 名 = str(_目标)
 	if 名 == "鼠标指针" or 名 == "__mouse":
-		var m := _鼠标K4(角色)
+		var m = _鼠标K4(角色)
 		角色.k4_x = m.x
 		角色.k4_y = m.y
 	elif 名 == "随机位置" or 名 == "__random":
-		var 半 := _舞台半(角色)
+		var 半 = _舞台半(角色)
 		角色.k4_x = randf_range(-半.x, 半.x)
 		角色.k4_y = randf_range(-半.y, 半.y)
 	else:
-		var 他 := 角色.找(名) as 角色基类
+		var 他 = 角色.找(名) as 角色基类
 		if 他 == null:
 			return
 		角色.k4_x = 他.k4_x
@@ -733,10 +774,10 @@ func 移到_目标(角色: 角色变量, _目标: Variant) -> void:
 
 ## 「移动 <n> 步」——沿 k4_direction 走（见文件头的方向换算）
 func 移动_步(角色: 角色变量, _步数: Variant) -> void:
-	var 步 := 角色._转数值(_步数)
+	var 步 = 角色._转数值(_步数)
 	# ★K4 方向 → 数学角（0 = 向右、逆时针为正）= `90 - 方向`★
 	#   必须和 角色基类._apply_transform 的 `rotation = deg_to_rad(90 - k4_direction)` 一致。
-	var 弧 := deg_to_rad(角色.k4_direction - 90.0)
+	var 弧 = deg_to_rad(角色.k4_direction - 90.0)
 	角色.k4_x += 步 * cos(弧)
 	角色.k4_y += 步 * sin(弧)
 	_移动后(角色)
@@ -760,17 +801,17 @@ func 面向(角色: 角色变量, _目标: Variant) -> void:
 	if _目标 is float or _目标 is int or (_目标 is String and (_目标 as String).is_valid_float()):
 		设置方向(角色, 角色._转数值(_目标))
 		return
-	var 名 := str(_目标)
-	var 点 := Vector2.ZERO
+	var 名 = str(_目标)
+	var 点 = Vector2.ZERO
 	if 名 == "鼠标指针" or 名 == "__mouse":
 		点 = _鼠标K4(角色)
 	else:
-		var 他 := 角色.找(名) as 角色基类
+		var 他 = 角色.找(名) as 角色基类
 		if 他 == null:
 			return
 		点 = Vector2(他.k4_x, 他.k4_y)
-	var dx := 点.x - 角色.k4_x
-	var dy := 点.y - 角色.k4_y
+	var dx = 点.x - 角色.k4_x
+	var dy = 点.y - 角色.k4_y
 	if is_zero_approx(dx) and is_zero_approx(dy):
 		return
 	角色.k4_direction = rad_to_deg(atan2(dy, dx)) + 90.0
@@ -791,16 +832,16 @@ func 面向_角色(角色: 角色变量, _参数: Variant) -> void:
 ##   现在改成用户指定的做法：Tween 负责插值，协程只 `await tween.finished`。
 func 滑行到(角色: 角色变量, ctx: 角色基类.WarpCtx, _p_秒: Variant, _x: Variant, _y: Variant) -> void:
 	# ctx 保留在签名里（调用点按位置传参），Tween 版不需要它做让出/取消检查
-	var 总 := _秒(角色, _p_秒)
-	var 起 := Vector2(角色.k4_x, 角色.k4_y)
-	var 终 := Vector2(角色._转数值(_x), 角色._转数值(_y))
+	var 总 = _秒(角色, _p_秒)
+	var 起 = Vector2(角色.k4_x, 角色.k4_y)
+	var 终 = Vector2(角色._转数值(_x), 角色._转数值(_y))
 	if 总 <= 0.0 or 起.is_equal_approx(终):
 		角色.k4_x = 终.x
 		角色.k4_y = 终.y
 		_移动后(角色)
 		return
-	var tw := 角色.create_tween()
-	tw.tween_method(_滑行写点.bind(角色), 起, 终, 总)
+	var tw = 角色.create_tween()
+	tw.tween_method(func(v: Vector2): _滑行写点(角色, v), 起, 终, 总)
 	await tw.finished
 	# Tween 的末帧理论上就是终值，这里再钉一次，防浮点残差
 	角色.k4_x = 终.x
@@ -812,10 +853,10 @@ func 滑行到(角色: 角色变量, ctx: 角色基类.WarpCtx, _p_秒: Variant,
 ##   ★同样是阻塞式：await tween.finished，动画播完才继续往下执行★
 ##   _方向 与「将坐标增加」共用 _符号方向() 归一化（increase/decrease、±1、bool 都认）。
 func 滑行坐标(角色: 角色变量, _轴: Variant, _方向: Variant, _时间: Variant, _值: Variant) -> void:
-	var 是y := str(_轴).strip_edges().to_lower().begins_with("y")
-	var 总 := _秒(角色, _时间)
-	var 起 := 角色.k4_y if 是y else 角色.k4_x
-	var 终 := 起 + 角色._转数值(_值) * _符号方向(角色, _方向)
+	var 是y = str(_轴).strip_edges().to_lower().begins_with("y")
+	var 总 = _秒(角色, _时间)
+	var 起 = 角色.k4_y if 是y else 角色.k4_x
+	var 终 = 起 + 角色._转数值(_值) * _符号方向(角色, _方向)
 	if 总 <= 0.0 or is_equal_approx(起, 终):
 		if 是y:
 			角色.k4_y = 终
@@ -823,11 +864,11 @@ func 滑行坐标(角色: 角色变量, _轴: Variant, _方向: Variant, _时间
 			角色.k4_x = 终
 		_移动后(角色)
 		return
-	var tw := 角色.create_tween()
+	var tw = 角色.create_tween()
 	if 是y:
-		tw.tween_method(_滑行写y.bind(角色), 起, 终, 总)
+		tw.tween_method(func(v: float): _滑行写y(角色, v), 起, 终, 总)
 	else:
-		tw.tween_method(_滑行写x.bind(角色), 起, 终, 总)
+		tw.tween_method(func(v: float): _滑行写x(角色, v), 起, 终, 总)
 	await tw.finished
 	if 是y:
 		角色.k4_y = 终
@@ -853,8 +894,8 @@ func _滑行写点(角色: 角色变量, _点: Vector2) -> void:
 
 ## 「碰到边缘就反弹」
 func 碰到边缘就反弹(角色: 角色变量) -> void:
-	var 半 := _舞台半(角色)
-	var 碰 := false
+	var 半 = _舞台半(角色)
+	var 碰 = false
 	# 左右边：关于竖直轴镜像 → d' = 360 - d
 	if 角色.k4_x > 半.x or 角色.k4_x < -半.x:
 		角色.k4_direction = 360.0 - 角色.k4_direction
@@ -877,7 +918,7 @@ func 大小_缩放(角色: 角色变量) -> float:
 
 ## 「把大小设为 <百分比>」
 func 设置大小(角色: 角色变量, _百分比: Variant) -> void:
-	var v := 角色._转数值(_百分比)
+	var v = 角色._转数值(_百分比)
 	角色.k4_size_percent = 0.0 if v < 0.0 else v
 	# 统一大小是"重新定大小"，会清掉之前的宽高分别缩放（否则两者叠加会越缩越小）
 	_k4_清空宽高缩放(角色)
@@ -895,7 +936,7 @@ func 增加大小(角色: 角色变量, _百分比: Variant) -> void:
 ##   以前只认 "左右"/"上下"/"leftright"/"horizontal"…，于是 'x'/'y' 全落进 else
 ##   被当成水平翻转 ——「上下翻转」永远没反应。
 func 翻转(角色: 角色变量, _方向: Variant) -> void:
-	var d := str(_方向).strip_edges().to_lower()
+	var d = str(_方向).strip_edges().to_lower()
 	if d == "y" or d == "上下" or d == "updown" or d == "vertical":
 		角色.k4_flip_y = not 角色.k4_flip_y
 	else:
@@ -909,14 +950,14 @@ func 翻转(角色: 角色变量, _方向: Variant) -> void:
 
 ## 「显示」
 func 显示(角色: 角色变量) -> void:
+	#设置特效(角色, "1",0.0)
 	角色.k4_visible = true
-	设置特效(角色, "1",0.0)
 	_apply_transform(角色)
 
 ## 「隐藏」
 func 隐藏(角色: 角色变量) -> void:
+	#设置特效(角色, "1",100.0)
 	角色.k4_visible = false
-	设置特效(角色, "1",100.0)
 	_apply_transform(角色)
 
 ## 「显示 / 隐藏」（开关型）
@@ -932,7 +973,7 @@ func 是否可见(角色: 角色变量) -> bool:
 func 下一个造型(角色: 角色变量) -> void:
 	if 角色._造型名表.is_empty():
 		return
-	var i := 角色.造型序号(角色.k4_costume_name)
+	var i = 角色.造型序号(角色.k4_costume_name)
 	角色._应用造型(str(角色._造型名表[(i + 1) % 角色._造型名表.size()]))
 
 ## 「把造型设为 <名称>」
@@ -957,7 +998,7 @@ func 设置造型(角色: 角色变量, _名称: Variant) -> void:
 	if (_名称 is int or _名称 is float) and not (_名称 is bool):
 		_按编号设置造型(角色, int(_名称))
 		return
-	var 候选 := _造型候选名(角色, _名称)
+	var 候选 = _造型候选名(角色, _名称)
 	# ① 直接命中（键就是 K4 原名）
 	for 名 in 候选:
 		if 角色.k4_costumes.has(名):
@@ -965,7 +1006,7 @@ func 设置造型(角色: 角色变量, _名称: Variant) -> void:
 			return
 	# ② 节点名 / 原名互查
 	for 名 in 候选:
-		var 节点名 := String(角色._造型节点名.get(名, ""))
+		var 节点名 = String(角色._造型节点名.get(名, ""))
 		if 节点名 != "" and 角色.k4_costumes.has(String(角色._造型原名.get(节点名, 名))):
 			角色._应用造型(String(角色._造型原名.get(节点名, 名)))
 			return
@@ -976,10 +1017,10 @@ func 设置造型(角色: 角色变量, _名称: Variant) -> void:
 			return
 	# ④ 最后一层：忽略大小写与首尾空格（"True" vs "true" 这类）
 	for k in 角色.k4_costumes.keys():
-		var 键 := String(k).strip_edges().to_lower()
-		var 原 := String(角色._造型原名.get(String(k), "")).strip_edges().to_lower()
+		var 键 = String(k).strip_edges().to_lower()
+		var 原 = String(角色._造型原名.get(String(k), "")).strip_edges().to_lower()
 		for 名2 in 候选:
-			var 目 := String(名2).strip_edges().to_lower()
+			var 目 = String(名2).strip_edges().to_lower()
 			if 键 == 目 or 原 == 目:
 				角色._应用造型(String(k))
 				return
@@ -990,7 +1031,7 @@ func 设置造型(角色: 角色变量, _名称: Variant) -> void:
 func _按编号设置造型(角色: 角色变量, _编号: int) -> void:
 	if 角色._造型名表.is_empty():
 		return
-	var i := clampi(_编号 - 1, 0, 角色._造型名表.size() - 1)
+	var i = clampi(_编号 - 1, 0, 角色._造型名表.size() - 1)
 	角色._应用造型(String(角色._造型名表[i]))
 
 ## 把一个造型实参展开成"可能对应哪些造型名"。
@@ -998,7 +1039,7 @@ func _按编号设置造型(角色: 角色变量, _编号: int) -> void:
 ##       true → ["true", "True", "1"]
 func _造型候选名(角色: 角色变量, _名称: Variant) -> Array:
 	var 出: Array = []
-	var 主 := str(_名称)
+	var 主 = str(_名称)
 	if 主 != "":
 		出.append(主)
 	if _名称 is bool:
@@ -1012,18 +1053,18 @@ func _造型候选名(角色: 角色变量, _名称: Variant) -> Array:
 				if not 出.has(x):
 					出.append(x)
 	elif _名称 is float or _名称 is int:
-		var f := float(_名称)
+		var f = float(_名称)
 		# 整数形态："3.0" -> "3"
 		if is_equal_approx(f, roundf(f)) and absf(f) < 1e15:
-			var 整 := str(int(f))
+			var 整 = str(int(f))
 			if not 出.has(整):
 				出.append(整)
-			var 带点 := 整 + ".0"
+			var 带点 = 整 + ".0"
 			if not 出.has(带点):
 				出.append(带点)
 		# 浮点形态：若 str() 给的是 "3"，补一个 "3.0"
 		if 主.find(".") < 0:
-			var 补 := 主 + ".0"
+			var 补 = 主 + ".0"
 			if not 出.has(补):
 				出.append(补)
 	return 出
@@ -1079,14 +1120,18 @@ func 增加透明度(角色: 角色变量, _值: Variant) -> void:
 ##     所以下面统一把「K4 编号 / 中文名 / 英文名」先折成一个内部码，
 ##     再按内部码执行 —— 生成代码里传的是 K4 数字编号，中文名只是兼容入口。
 func 设置特效(角色: 角色变量, _特效: Variant, _值: Variant) -> void:
-	var v := clampf(角色._转数值(_值), -100.0, 100.0)
-	var 码 := _特效码(角色, _特效)
+	var 码 = _特效码(角色, _特效)
+	var v
+	if 码!="brightness":
+		v= clampf(角色._转数值(_值), 0.0, 100.0)
+	else:
+		v= clampf(角色._转数值(_值), 0.0, 200.0)
 	角色.k4_effect[码] = v
 	match 码:
 		"ghost":                       # K4 编号 1 / 透明度 / 幽灵（0 显示 → 100 透明）
 			角色.k4_modulate.a = clampf(1.0 - v / 100.0, 0.0, 1.0)
 		"brightness":                  # K4 编号 2 / 亮度
-			var b := clampf(1.0 + v / 100.0, 0.0, 2.0)
+			var b = clampf(1.0 + v / 100.0, 0.0, 2.0)
 			角色.k4_modulate.r = b
 			角色.k4_modulate.g = b
 			角色.k4_modulate.b = b
@@ -1116,13 +1161,13 @@ func _特效码(角色: 角色变量, _特效: Variant) -> String:
 	# 数字 → K4 编号
 	if _特效 is float or _特效 is int:
 		return _K4特效表.get(int(_特效), "未知" + str(int(_特效)))
-	var 原 := str(_特效).strip_edges()
+	var 原 = str(_特效).strip_edges()
 	if 原 == "":
 		return "未知"
 	# 纯数字字符串也算 K4 编号（生成代码里传的是 "1" 这种字符串）
 	if 原.is_valid_int():
 		return _K4特效表.get(int(原), "未知" + 原)
-	var s := 原.to_lower()
+	var s = 原.to_lower()
 	match s:
 		"颜色", "color", "colour":
 			return "color"
@@ -1147,7 +1192,7 @@ func _特效码(角色: 角色变量, _特效: Variant) -> String:
 ## K4 的 scope 编号 → 内部码。
 ##   ⚠ 已实测确认的只有 **1 = 透明度**（高考呐，用户实测）。
 ##     其余按 K4 UI 下拉顺序推断；如果你发现某个编号对不上，改这一张表即可。
-const _K4特效表 := {
+const _K4特效表 = {
 	0: "color",         # 颜色
 	1: "ghost",         # 透明度  ← 已实测确认
 	2: "brightness",    # 亮度
@@ -1172,7 +1217,7 @@ func 清除特效(角色: 角色变量, _参数: Variant) -> void:
 func 增加特效(角色: 角色变量, _特效: Variant, _符号: Variant, _值: Variant) -> void:
 	# 归一化：符号（数字 / bool / "increase"/"decrease" 字符串）与特效码走同一套规则，
 	# 读写都用**内部码**做键，避免"设进去是 6、读出来是 1"这种对不上。
-	var 码 := _特效码(角色, _特效)
+	var 码 = _特效码(角色, _特效)
 	设置特效(角色, 码, 角色._转数值(角色.k4_effect.get(码, 0.0)) + 角色._转数值(_值) * _符号方向(角色, _符号))
 
 ## 「移到图层 <最前面 / 最后面>」
@@ -1188,17 +1233,17 @@ func 增加特效(角色: 角色变量, _特效: Variant, _符号: Variant, _值
 ##   运行期直接报 "Child is not a child of this node"，
 ##   于是「移至 最上层/最下层/上一层/下一层」四档**从来没生效过**。
 func 移到图层(角色: 角色变量, _方向: Variant) -> void:
-	var 父 := 角色.get_parent()
+	var 父 = 角色.get_parent()
 	if 父 == null:
 		return
-	var 最前 := 角色._转数值(_方向) > 0.0
+	var 最前 = 角色._转数值(_方向) > 0.0
 	父.move_child(角色, 父.get_child_count() - 1 if 最前 else 0)
 	角色.k4_图层 = 0
 
 ## 「把图层 <前移 / 后移> <n> 层」（实参是数字，正 = 前移）
 func 图层前后移(角色: 角色变量, _层数: Variant) -> void:
-	var n := int(角色._转数值(_层数))
-	var 父 := 角色.get_parent()
+	var n = int(角色._转数值(_层数))
+	var 父 = 角色.get_parent()
 	if 父 == null or n == 0:
 		return
 	角色.k4_图层 += n
@@ -1229,8 +1274,8 @@ func 图层前后移(角色: 角色变量, _层数: Variant) -> void:
 ##   （z_index 只管**跨层**：舞台 -100 < 画笔下方 -75 < 画笔 -50 < 角色 0；
 ##     同层内的先后仍然由树顺序决定，见 移到图层 的注释。）
 func 移到画笔图层(角色: 角色变量, _位置: Variant) -> void:
-	var s := str(_位置).to_lower()
-	var 父 := 角色.get_parent()
+	var s = str(_位置).to_lower()
+	var 父 = 角色.get_parent()
 	if s.find("below") >= 0 or s.find("下") >= 0:
 		角色.z_index = -75
 		if 父 != null:
@@ -1259,7 +1304,7 @@ func 设置图层与画笔(角色: 角色变量, _参数: Variant) -> void:
 ##   （它是"重新定大小"的入口）。本函数与「设置宽高缩放」是同一路参数：
 ##   都直接**覆盖** `_k4_宽缩放 / _k4_高缩放`，连续调用不会互相乘。
 func 设置大小_外观(角色: 角色变量, _参数: Variant) -> void:
-	var _v := 角色._转数值(_首个(角色, _参数))
+	var _v = 角色._转数值(_首个(角色, _参数))
 	_写轴缩放(角色, "width", _v)
 	_写轴缩放(角色, "height", _v)
 	_移动后(角色)
@@ -1282,8 +1327,8 @@ func 设置大小_外观(角色: 角色变量, _参数: Variant) -> void:
 ##     节点缩放 = 目标百分比 / k4_size_percent（抵消统一大小那一层）
 ##   这样"把高度设为 40%"得到的就是原始高度的 40%，与 K4 一致。
 func 设置宽高缩放(角色: 角色变量, _轴: Variant, _百分比: Variant) -> void:
-	var 轴串 := ""
-	var 值 := 0.0
+	var 轴串 = ""
+	var 值 = 0.0
 	if _轴 is Array:
 		# 兼容旧形态：([值]) / ([宽, 高])
 		var _a: Array = _轴
@@ -1325,7 +1370,7 @@ func 设置宽高缩放(角色: 角色变量, _轴: Variant, _百分比: Variant
 ##   ⚠ 曾经写成"系数 = 百分比/100"，而 _apply_transform 又乘了 size%/100 →
 ##     实际缩放变成 (size%/100)² × 百分比，高度差了一倍以上（实测 0.19 而非 0.40）。
 func _写轴缩放(角色: 角色变量, _轴: String, _百分比: float) -> void:
-	var 系数 := maxf(0.0, _百分比) / maxf(0.0001, 角色.k4_size_percent)   # = 百分比 / 统一大小%
+	var 系数 = maxf(0.0, _百分比) / maxf(0.0001, 角色.k4_size_percent)   # = 百分比 / 统一大小%
 	# ★只改自己这一轴★ —— 另一轴留给调用方决定（重置还是保持）。
 	#   以前这里顺手把"另一轴"重置成 1.0，于是「设置大小_外观」连续调两次
 	#   （先 width 后 height）时，第二次会把第一次的结果清掉 → 只生效一个轴。
@@ -1359,7 +1404,7 @@ func _k4_清一轴(角色: 角色变量, _轴: String) -> void:
 # -----------------------------------------------------------------------------
 func _气泡(角色: 角色变量, _文本: String, _思考: bool) -> Label:
 	if 角色.k4_say_label == null or not is_instance_valid(角色.k4_say_label):
-		var l := Label.new()
+		var l = Label.new()
 		l.name = "K4气泡"
 		l.z_index = 4096
 		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -1405,16 +1450,16 @@ func 想_秒(角色: 角色变量, ctx: 角色基类.WarpCtx, _内容: Variant, 
 # 淡入 / 淡出 / 渐变（K4 的透明度过渡）
 # -----------------------------------------------------------------------------
 func _渐变到(角色: 角色变量, _目标: float, _秒数: float) -> void:
-	var 起 := 角色.modulate.a
+	var 起 = 角色.modulate.a
 	if _秒数 <= 0.0:
 		角色.k4_modulate.a = _目标
 		_apply_transform(角色)
 		return
-	var 过 := 0.0
+	var 过 = 0.0
 	while 过 < _秒数:
 		if not await 角色.让出帧(): return
 		过 += 角色.get_process_delta_time()
-		var t := clampf(过 / _秒数, 0.0, 1.0)
+		var t = clampf(过 / _秒数, 0.0, 1.0)
 		角色.k4_modulate.a = lerpf(起, _目标, t)
 		_apply_transform(角色)
 	角色.k4_modulate.a = _目标
@@ -1441,14 +1486,14 @@ func 渐变(角色: 角色变量, ctx: 角色基类.WarpCtx, _p_秒: Variant, _�
 
 ## 「到 <角色 / 鼠标指针> 的距离」
 func 到_的距离(角色: 角色变量, _目标: Variant) -> float:
-	var 名 := str(_目标)
-	var 点 := Vector2.ZERO
+	var 名 = str(_目标)
+	var 点 = Vector2.ZERO
 	if 名 == "鼠标指针" or 名 == "__mouse":
 		点 = _鼠标K4(角色)
 	elif 名 == "舞台中心" or 名 == "__center":
 		点 = Vector2.ZERO
 	else:
-		var 他 := 角色.找(名) as 角色基类
+		var 他 = 角色.找(名) as 角色基类
 		if 他 == null:
 			return 0.0
 		点 = Vector2(他.k4_x, 他.k4_y)
@@ -1488,11 +1533,11 @@ func 当前日(角色: 角色变量) -> float:
 ##   Godot 的 weekday 是 0=周日 … 6=周六，而 K4 的"星期(数字)"是
 ##   星期日=7、星期一=1 …（用户截图里 "星期二" = 2 可对上）。
 func 当前星期(角色: 角色变量) -> String:
-	const 表 := ["星期日", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六"]
+	const 表 = ["星期日", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六"]
 	return 表[int(Time.get_datetime_dict_from_system().get("weekday", 0))]
 
 func 当前星期数字(角色: 角色变量) -> float:
-	var w := int(Time.get_datetime_dict_from_system().get("weekday", 0))
+	var w = int(Time.get_datetime_dict_from_system().get("weekday", 0))
 	return float(7 if w == 0 else w)
 
 func 当前小时(角色: 角色变量) -> float:
@@ -1509,21 +1554,40 @@ func 当前秒(角色: 角色变量) -> float:
 func 按键按下(角色: 角色变量, _键: Variant) -> bool:
 	return 按键表.当前按下(_键)
 
-## 「松开 <键> 吗」——K4 的按键侦测有"按下 / 松开"两档
-##   （fields.key_event_type = down | up，实测 18 个样本两档都出现）
-func 按键松开(角色: 角色变量, _键: Variant) -> bool:
-	return not 按键表.当前按下(_键)
+
+# ── 松开/按下事件缓存：键码 -> 帧号 ──
+var _松开记录: Dictionary = {}
+var _按下记录: Dictionary = {}
+
+
+
+# 某键是否"刚刚松开"：查到就消费掉，避免同一个松开被触发两次
+func 按键松开(角色: 角色变量, _名: Variant) -> bool:
+	var 码 := 按键表.解析(_名)
+	if 码 == KEY_NONE:
+		return false
+	if not _松开记录.has(码):
+		return false
+	var 帧: int = _松开记录[码]
+	var 本帧 := Engine.get_process_frames()
+	# 太久以前的松开（超过 2 帧没人问）就丢弃
+	if 本帧 - 帧 > 2:
+		_松开记录.erase(码)
+		return false
+	_松开记录.erase(码)   # 消费
+	return true
+
 
 ## 「碰到 <边缘 / 鼠标指针 / 角色名>」
 ## ⚠ 用的是**包围盒**判断，不是像素级碰撞。K4 是像素级（带 alpha 掩码），
 ##   要精确的话得给每个角色挂 Area2D 并烘焙碰撞多边形（见 README 的待办）。
 func 碰到(角色: 角色变量, _目标: Variant) -> bool:
-	var 名 := str(_目标)
+	var 名 = str(_目标)
 	if 名 == "边缘" or 名 == "__edge":
 		return _出界(角色)
 	if 名 == "鼠标指针" or 名 == "__mouse":
 		return 包围盒(角色).has_point(_鼠标K4(角色))
-	var 他 := 角色.找(名) as 角色基类
+	var 他 = 角色.找(名) as 角色基类
 	if 他 == null or 他 == 角色:
 		return false
 	if not 他.k4_visible:
@@ -1555,20 +1619,20 @@ static var _同层缓存表: Dictionary = {}
 static var _同层缓存帧: int = -1
 
 func _同层角色(角色: 角色变量) -> Array:
-	var 层 := 角色.get_parent()
+	var 层 = 角色.get_parent()
 	if 层 == null:
 		return []
-	var 本帧 := Engine.get_process_frames()
+	var 本帧 = Engine.get_process_frames()
 	if _同层缓存帧 != 本帧:
 		_同层缓存表.clear()
 		_同层缓存帧 = 本帧
-	var 键 := 层.get_instance_id()
+	var 键 = 层.get_instance_id()
 	if _同层缓存表.has(键):
 		return _同层缓存表[键]
 	var 列表: Array = []
-	var n := 层.get_child_count()
+	var n = 层.get_child_count()
 	for i in n:
-		var 角 := 层.get_child(i) as 角色基类
+		var 角 = 层.get_child(i) as 角色基类
 		if 角 != null and 角.k4_visible:
 			列表.append(角)
 	_同层缓存表[键] = 列表
@@ -1602,7 +1666,7 @@ static var _掩码缓存: Dictionary = {}
 static func _取掩码(_纹: Texture2D):
 	if _纹 == null:
 		return null
-	var 键 := _纹.get_rid()
+	var 键 = _纹.get_rid()
 	if _掩码缓存.has(键):
 		return _掩码缓存[键]
 	var 图: Image = _纹.get_image()
@@ -1610,11 +1674,11 @@ static func _取掩码(_纹: Texture2D):
 		_掩码缓存[键] = null
 		return null
 	if 图.get_format() != Image.FORMAT_RGBA8:
-		var 转 := Image.new()
+		var 转 = Image.new()
 		转.copy_from(图)
 		转.convert(Image.FORMAT_RGBA8)
 		图 = 转
-	var 包 := {
+	var 包 = {
 		"数据": 图.get_data(),
 		"宽": 图.get_width(),
 		"高": 图.get_height()
@@ -1640,23 +1704,23 @@ func _掩码相交(角色: 角色变量, _我: Node2D, _他: Node2D) -> bool:
 	var 他高: int = 他包["高"]
 	if 我宽 < 1 or 我高 < 1 or 他宽 < 1 or 他高 < 1:
 		return true
-	var 我尺 := Vector2(我宽, 我高)
-	var 他尺 := Vector2(他宽, 他高)
-	var 我变换 := _我.get_global_transform()
-	var 他逆 := _他.get_global_transform().affine_inverse()
+	var 我尺 = Vector2(我宽, 我高)
+	var 他尺 = Vector2(他宽, 他高)
+	var 我变换 = _我.get_global_transform()
+	var 他逆 = _他.get_global_transform().affine_inverse()
 	# 采样步长：长边最多采 24 个点（≤576 点），小造型自动采到 1px
-	var 步 := maxi(1, int(maxf(我尺.x, 我尺.y) / 24.0))
-	var y := 0
+	var 步 = maxi(1, int(maxf(我尺.x, 我尺.y) / 24.0))
+	var y = 0
 	while y < 我高:
-		var x := 0
+		var x = 0
 		while x < 我宽:
 			# 我这一点的 alpha（RGBA8 第 4 个字节）
 			if 我数[(y * 我宽 + x) * 4 + 3] > 127:
 				var 舞台点: Vector2 = 我变换 * (Vector2(x, y) - 我尺 * 0.5)
 				var 他像素: Vector2 = 他逆 * 舞台点 + 他尺 * 0.5
 				if 他像素.x >= 0.0 and 他像素.y >= 0.0 and 他像素.x < 他尺.x and 他像素.y < 他尺.y:
-					var hx := int(他像素.x)
-					var hy := int(他像素.y)
+					var hx = int(他像素.x)
+					var hy = int(他像素.y)
 					if 他数[(hy * 他宽 + hx) * 4 + 3] > 127:
 						return true
 			x += 步
@@ -1673,12 +1737,12 @@ func _掩码相交(角色: 角色变量, _我: Node2D, _他: Node2D) -> bool:
 ## 所以这里给一个和 `K4_帧warp预算` 同样性质的"本帧配额"：
 ##   用完之后退回**包围盒结论**（继承像素级之前的老行为，宁可略粗也不冻帧）。
 ## 300 次 × 10.74 微秒 ≈ 最坏 3.2 毫秒/帧，是有界的。
-const K4_帧像素确认上限 := 300
+const K4_帧像素确认上限 = 300
 static var _像素帧号: int = -1
 static var _像素本帧计数: int = 0
 
 func _还可以做像素确认(角色: 角色变量) -> bool:
-	var 本帧 := Engine.get_process_frames()
+	var 本帧 = Engine.get_process_frames()
 	if _像素帧号 != 本帧:
 		_像素帧号 = 本帧
 		_像素本帧计数 = 0
@@ -1702,8 +1766,8 @@ func 碰到目标(角色: 角色变量, _目标: Variant, _目标2: Variant) -> 
 		return false
 	if 角色.k4_出生帧 > 0 and Engine.get_process_frames() <= 角色.k4_出生帧:
 		return false
-	var 甲 := 实体节点们(角色, _目标)
-	var 乙 := 实体节点们(角色, _目标2)
+	var 甲 = 实体节点们(角色, _目标)
+	var 乙 = 实体节点们(角色, _目标2)
 	if 甲.is_empty() or 乙.is_empty():
 		return false
 	for a in 甲:
@@ -1724,8 +1788,8 @@ func 碰到目标(角色: 角色变量, _目标: Variant, _目标2: Variant) -> 
 ##   ⚠ 以前 core.js 把它生成成 `碰到("边缘")` —— 判定**正好相反**：
 ##     角色站在舞台中间时"离开边缘"应为真，按"碰到边缘"算则恒为假。
 func 离开边缘(角色: 角色变量, _边: Variant) -> bool:
-	var 半 := _舞台半(角色)
-	var b := str(_边).strip_edges()
+	var 半 = _舞台半(角色)
+	var b = str(_边).strip_edges()
 	if b == "" or b == "0" or b == "任意" or b == "any":
 		return 角色.k4_x < -半.x or 角色.k4_x > 半.x or 角色.k4_y < -半.y or 角色.k4_y > 半.y
 	if b == "1" or b == "上" or b == "top":
@@ -1756,7 +1820,7 @@ func 碰到颜色(角色: 角色变量, _目标: Variant, _颜色: Variant) -> b
 ##   桌面端通常没有重力计，Input.get_gravity() 恒为 (0, 9.8)：
 ##   那种情况返回 0（= 未倾斜），语义稳定、不会乱跳。
 func 屏幕方向(角色: 角色变量, _轴: Variant) -> float:
-	var 重 := Input.get_gravity()
+	var 重 = Input.get_gravity()
 	if absf(重.x) < 0.05 and absf(重.y) < 0.05:
 		return 0.0
 	return 重.x if str(_轴).strip_edges().to_upper().begins_with("X") else 重.y
@@ -1765,7 +1829,7 @@ func 屏幕方向(角色: 角色变量, _轴: Variant) -> float:
 ##   真正的麦克风采集在 autoload `K4Voice` 上
 ##   （它要占一条音频总线、还需要 project.godot 打开输入驱动，见那个文件）。
 func 开启声音侦测(角色: 角色变量, _开关: Variant) -> void:
-	var 开 := str(_开关).strip_edges().to_lower().find("open") >= 0 or 角色._转数值(_开关) != 0.0
+	var 开 = str(_开关).strip_edges().to_lower().find("open") >= 0 or 角色._转数值(_开关) != 0.0
 	K4Voice.设置启用(开)
 
 ## 「当前 音量」——K4 的 get_voice_volume（麦克风音量，0-100）
@@ -1787,10 +1851,10 @@ func 碰到角色(角色: 角色变量) -> Variant:
 	#   「碰到角色 → 删除克隆体」删掉 —— 表现为"能不能射出子弹看鼠标朝向"。
 	if 角色.k4_出生帧 > 0 and Engine.get_process_frames() <= 角色.k4_出生帧:
 		return ""
-	var 我 := 包围盒(角色)
-	var 我半 := maxf(我.size.x, 我.size.y) * 0.5
+	var 我 = 包围盒(角色)
+	var 我半 = maxf(我.size.x, 我.size.y) * 0.5
 	for 节点 in _同层角色(角色):
-		var 兄弟 := 节点 as 角色基类
+		var 兄弟 = 节点 as 角色基类
 		if 兄弟 == null or 兄弟 == 角色:
 			continue
 		var 他盒: Rect2 = K4Func.包围盒(兄弟)
@@ -1813,20 +1877,74 @@ func 碰到角色(角色: 角色变量) -> Variant:
 
 ## 「<目标> 的 <属性>」
 func 属性(角色: 角色变量, _目标: Variant, _属性: Variant) -> Variant:
-	var 名 := str(_目标)
+	var 名 = str(_目标)
 	if 名 == "舞台" or 名 == "__stage":
 		return 舞台信息(角色, _属性)
-	var 他 := _目标节点(角色, _目标)
+	var 他 = _目标节点(角色, _目标)
 	if 他 == null:
 		return 0.0
 	return _读属性(角色, 他, str(_属性))
 
 ## 「<角色> 的 <属性>」——注意实参顺序是 (属性, 目标)
+##   ★属性也可能是变量★：生成器把「(角色) 的 (某个变量)」标成 `var:<变量名>`
+##   （K4 的属性下拉框里能选到角色变量），这里转发给 _读克隆体变量 读那个实例的变量。
 func 角色属性(角色: 角色变量, _属性: Variant, _目标: Variant) -> Variant:
-	var 他 := _目标节点(角色, _目标)
+	var 他 = _目标节点(角色, _目标)
+	if 他 == null:
+		push_warning("存在未找到的节点")
+		return 0.0
+	var 键 = str(_属性)
+	if 键.begins_with("var:"):
+		return _读克隆体变量(他 as 角色基类, 键.substr(4))
+	return _读属性(角色, 他, 键)
+
+## 「<角色> 编号 <n> 克隆体的 <属性 / 变量>」—— K4 的 get_clone_index_property
+##
+##   编号语义（照抄 K4 Ultra 的 get_clone_index_property）：
+##     0     → 本体（原型自己）
+##     1..n  → 原型 k4_clones 里第 n 个（★分裂体也在里面★）
+##   取不到那个克隆体（已经死掉 / 越界）时返回 0.0 —— K4 那边是抛
+##   clone_not_found 错误，我们不让作品崩，给 0 更接近它"读到空"的表现。
+##
+##   属性键有两种：
+##     · 'x' / 'y' / 'style_index' … 'height' → 读那个复制体的属性（走 _读属性）
+##     · 'var:<变量名>'                       → 读**那个复制体自己的**变量
+##       （K4: get_variable(l, undefined, f.get_id()) —— 每个克隆体一份独立的值，
+##        这正是"敌人的第 n 号克隆体的 敌人buff"想要的东西）
+func 克隆体属性(角色: 角色变量, _目标: Variant, _编号: Variant, _属性: Variant) -> Variant:
+	var 他 = _目标节点(角色, _目标) as 角色基类
 	if 他 == null:
 		return 0.0
-	return _读属性(角色, 他, str(_属性))
+	var 体 = 他.取克隆体(int(角色._转数值(_编号)))
+	if 体 == null:
+		return 0.0
+	var 键 = str(_属性)
+	if 键.begins_with("var:"):
+		return _读克隆体变量(体, 键.substr(4))
+	return _读属性(角色, 体, 键)
+
+## 读某个克隆体 / 分裂体自己的变量值。
+##   不写死成 `体._v_敌人buff` 的原因：`体` 的静态类型是 角色基类，
+##   点属性会在静态检查里报"不存在的成员"，只能走 get()。
+##   变量可能落在两个地方，按顺序试：
+##     ① 角色变量 —— 生成器做成角色节点上的 `_v_<名字>` 成员（每个角色/复制体一份）
+##     ② 全局变量 —— 那一条在 autoload K4Global 上，对克隆体而言是共享的
+func _读克隆体变量(_体: 角色基类, _变量名: String) -> Variant:
+	if _变量名 == "":
+		return 0.0
+	var 成员 = "_v_" + _变量名
+	var 值 = _体.get(成员)
+	if 值 != null:
+		return 值
+	if K4Global != null:
+		var 全局值 = K4Global.get(成员)
+		if 全局值 != null:
+			return 全局值
+	# 兜底：角色基类的变量字典（手写实现 / 名字被清洗过的场景）
+	var 表 = _体.get("k4_variables")
+	if 表 is Dictionary and (表 as Dictionary).has(_变量名):
+		return (表 as Dictionary)[_变量名]
+	return 0.0
 
 ## ★K4 的「角色的属性」是用**数字索引**传进来的，不是中文名★
 ##
@@ -1840,7 +1958,7 @@ func 角色属性(角色: 角色变量, _属性: Variant, _目标: Variant) -> V
 ##   于是「<射击手> 的方向」恒等于 0，炮口方向整个歪掉
 ##   （用户实测原话："射击方向是歪的"）。
 func _读属性(角色: 角色变量, _节点: Node, _属性: String) -> Variant:
-	var 键 := _属性.strip_edges()
+	var 键 = _属性.strip_edges()
 	match 键:
 		"0", "x", "x坐标", "X坐标", "横坐标":
 			return _节点.get("k4_x")
@@ -1857,21 +1975,32 @@ func _读属性(角色: 角色变量, _节点: Node, _属性: String) -> Variant
 		"6", "音量", "volume":
 			return _节点.get("k4_音量")
 		"7", "颜色", "color":
-			return _特效值(角色, _节点, "0")
-		"8", "透明度", "transparency":
-			return _特效值(角色, _节点, "6")
+			return _特效值(角色, _节点, "color")
+		"8", "透明度", "transparency", "alpha":
+			if 角色.k4_visible == true:
+				return _特效值(角色, _节点, "ghost")
+			else:
+				return 100.0
 		"9", "亮度", "brightness":
-			return _特效值(角色, _节点, "5")
+			return _特效值(角色, _节点, "brightness")
 		"10", "像素化", "pixelate":
-			return _特效值(角色, _节点, "3")
-		"11", "波浪", "wave":
-			return _特效值(角色, _节点, "1")
+			return _特效值(角色, _节点, "pixelate")
+		"11", "波浪", "波纹", "位移", "wave", "displacement":
+			return _特效值(角色, _节点, "fisheye")
 		"12", "扭曲", "twist":
-			return _特效值(角色, _节点, "2")
+			return _特效值(角色, _节点, "whirl")
 		"13", "黑白", "灰色", "grey", "gray":
-			return _特效值(角色, _节点, "4")
+			return _特效值(角色, _节点, "black_white")
+		"14", "符号码", "符号", "ascii", "symbol":
+			return _特效值(角色, _节点, "symbol")
 		"15", "速度", "speed":
 			return 0.0
+		# 16 / 17 = 宽 / 高（K4 属性表里的 e.width / e.height）——
+		# 对应 K4 的"宽高缩放"那两个系数。低于 K4 那一版没有这两项。
+		"16", "宽", "宽度", "width":
+			return _节点.get("_k4_宽缩放")
+		"17", "高", "高度", "height":
+			return _节点.get("_k4_高缩放")
 		"可见", "显示", "visible":
 			return _节点.get("k4_visible")
 		"名字", "name":
@@ -1918,12 +2047,42 @@ func 鼠标信息(角色: 角色变量, _项: Variant) -> Variant:
 func 鼠标按下(角色: 角色变量) -> bool:
 	return Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
 
+var _鼠标松开记录: Dictionary = {}   # 按钮 -> 帧号
+
+func _input(event: InputEvent) -> void:
+	if event is InputEventMouseButton:
+		if event.pressed:
+			_鼠标松开记录.erase(event.button_index)   # 按下时清旧的
+		else:
+			_鼠标松开记录[event.button_index] = Engine.get_process_frames()
+	# 需要脚本挂在 Autoload（或任意常驻节点）上才会被调用
+	if not (event is InputEventKey) or event.echo:
+		return
+	var 帧 := Engine.get_process_frames()
+	if event.pressed:
+		# 按下时把旧的松开记录清掉，避免残留误报
+		_松开记录.erase(event.keycode)
+		_松开记录.erase(event.physical_keycode)
+		_按下记录[event.keycode] = 帧
+		_按下记录[event.physical_keycode] = 帧
+	else:
+		_松开记录[event.keycode] = 帧
+		_松开记录[event.physical_keycode] = 帧
+
+# 鼠标左键是否"刚刚松开"（查到就消费，一次松开只触发一次）
 func 鼠标松开(角色: 角色变量) -> bool:
-	return not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
+	if not _鼠标松开记录.has(MOUSE_BUTTON_LEFT):
+		return false
+	var 帧: int = _鼠标松开记录[MOUSE_BUTTON_LEFT]
+	if Engine.get_process_frames() - 帧 > 2:
+		_鼠标松开记录.erase(MOUSE_BUTTON_LEFT)
+		return false
+	_鼠标松开记录.erase(MOUSE_BUTTON_LEFT)   # 消费
+	return true
 
 ## 「舞台的 <宽 / 高 / 信息>」
 func 舞台信息(角色: 角色变量, _项: Variant) -> Variant:
-	var 尺 := 角色.get_viewport_rect().size
+	var 尺 = 角色.get_viewport_rect().size
 	match str(_项).to_lower():
 		"宽", "width", "w":
 			return 尺.x
@@ -1958,12 +2117,12 @@ func _确保询问界面(角色: 角色变量) -> void:
 	角色._询问层 = CanvasLayer.new()
 	角色._询问层.name = "K4询问层"
 	角色._询问层.layer = 100
-	var 板 := PanelContainer.new()
+	var 板 = PanelContainer.new()
 	板.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	板.position = Vector2(-180, -180)
 	板.custom_minimum_size = Vector2(360, 0)
 	角色._询问层.add_child(板)
-	var 列 := VBoxContainer.new()
+	var 列 = VBoxContainer.new()
 	板.add_child(列)
 	角色._询问问题 = Label.new()
 	角色._询问问题.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -1979,7 +2138,7 @@ func _确保询问界面(角色: 角色变量) -> void:
 	# 挂到当前场景（autoload 里挂不到"当前屏幕"上面）
 	if not is_instance_valid(角色):
 		return
-	var 树 := 角色.get_tree()
+	var 树 = 角色.get_tree()
 	if 树 == null:
 		return
 	if 树.current_scene != null:
@@ -2092,20 +2251,20 @@ func _建声音表(角色: 角色变量) -> void:
 	_扫目录(角色, "res://音频")
 
 func _扫目录(角色: 角色变量, _路径: String) -> void:
-	var d := DirAccess.open(_路径)
+	var d = DirAccess.open(_路径)
 	if d == null:
 		return
 	d.list_dir_begin()
-	var n := d.get_next()
+	var n = d.get_next()
 	while n != "":
 		if n.begins_with("."):
 			n = d.get_next()
 			continue
-		var 全 := _路径.path_join(n)
+		var 全 = _路径.path_join(n)
 		if d.current_is_dir():
 			_扫目录(角色, 全)
 		else:
-			var 基 := n.get_basename()
+			var 基 = n.get_basename()
 			if not _声音表.has(基):
 				_声音表[基] = 全
 		n = d.get_next()
@@ -2123,7 +2282,7 @@ func _找声音(角色: 角色变量, _名: String) -> AudioStream:
 	#       "827454048-1-208_(1)".find("827454048-1-208 (1)") == -1   → 匹配失败，
 	#    于是 K4 里明明有声音，运行时却报"找不到声音"。
 	#    这里把两边都剥成"只留字母数字与中文"，差异就消失了。
-	var 规范 := _规范名(角色, _名)
+	var 规范 = _规范名(角色, _名)
 	if 规范 != "":
 		for k in _声音表.keys():
 			if _规范名(角色, str(k)) == 规范:
@@ -2139,7 +2298,7 @@ func _找声音(角色: 角色变量, _名: String) -> AudioStream:
 ##   其它实参 → 名字
 func _取声音(角色: 角色变量, _名称: Variant) -> AudioStream:
 	if (_名称 is int or _名称 is float) and not (_名称 is bool):
-		var 名 := _按编号取声音名(角色, int(_名称))
+		var 名 = _按编号取声音名(角色, int(_名称))
 		if 名 == "":
 			return null
 		return _找声音(角色, 名)
@@ -2150,7 +2309,7 @@ func _按编号取声音名(角色: 角色变量, _编号: int) -> String:
 	var 表: Variant = K4Global.get("声音顺序")
 	if not (表 is Array) or (表 as Array).is_empty():
 		return ""
-	var i := clampi(_编号 - 1, 0, (表 as Array).size() - 1)
+	var i = clampi(_编号 - 1, 0, (表 as Array).size() - 1)
 	return str((表 as Array)[i])
 
 ## 「停止 <某个声音>」——K4 的「停止 1.倒水声」
@@ -2159,7 +2318,7 @@ func _按编号取声音名(角色: 角色变量, _编号: int) -> String:
 func 停止声音(角色: 角色变量, _名称: Variant) -> void:
 	if 角色.k4_音频 == null or not is_instance_valid(角色.k4_音频):
 		return
-	var 想停 := _取声音(角色, _名称)
+	var 想停 = _取声音(角色, _名称)
 	if 想停 == null:
 		return
 	if 角色.k4_音频.stream == 想停:
@@ -2177,7 +2336,7 @@ func _载声音(角色: 角色变量, _路径: String) -> AudioStream:
 	#     "Resource still in use: res://音频/xxx.mp3"
 	#   自己管缓存（下面的弱引用表）之后，引用只挂在正在使用它的播放器上，
 	#   播放器一 stop()/stream = null 就干净了。
-	var s := ResourceLoader.load(_路径, "", ResourceLoader.CACHE_MODE_IGNORE) as AudioStream
+	var s = ResourceLoader.load(_路径, "", ResourceLoader.CACHE_MODE_IGNORE) as AudioStream
 	if s != null:
 		_流缓存[_路径] = weakref(s)
 	return s
@@ -2185,9 +2344,9 @@ func _载声音(角色: 角色变量, _路径: String) -> AudioStream:
 ## 声音/素材名的规范化：去掉空格、下划线、括号、连字符等一切分隔符后比较。
 ##   "827454048-1-208 (1)" 与 "827454048-1-208_(1)" → 都变成 "82745404812081"
 func _规范名(角色: 角色变量, _名: String) -> String:
-	var 出 := ""
+	var 出 = ""
 	for i in _名.length():
-		var c := _名[i]
+		var c = _名[i]
 		if (c >= "0" and c <= "9") or (c >= "a" and c <= "z") or (c >= "A" and c <= "Z"):
 			出 += c.to_lower()
 		elif c.unicode_at(0) > 127:
@@ -2204,22 +2363,22 @@ func _播放器(角色: 角色变量) -> AudioStreamPlayer:
 
 ## 「播放声音 <名称 / 编号>」
 func 播放声音(角色: 角色变量, _名称: Variant) -> void:
-	var 流 := _取声音(角色, _名称)
+	var 流 = _取声音(角色, _名称)
 	if 流 == null:
 		_桩提醒(角色, "播放声音：找不到声音 " + str(_名称) + "（应该在 res://音频/ 下）")
 		return
-	var p := _播放器(角色)
+	var p = _播放器(角色)
 	p.stream = 流
 	p.volume_db = linear_to_db(clampf(角色.k4_音量 / 100.0, 0.0, 1.0))
 	p.play()
 
 ## 「播放声音 <名称> 直到播完」
 func 播放声音并等待(角色: 角色变量, ctx: 角色基类.WarpCtx, _名称: Variant) -> void:
-	var 流 := _取声音(角色, _名称)
+	var 流 = _取声音(角色, _名称)
 	if 流 == null:
 		_桩提醒(角色, "播放声音并等待：找不到声音 " + str(_名称))
 		return
-	var p := _播放器(角色)
+	var p = _播放器(角色)
 	p.stream = 流
 	p.play()
 	# 注意：用 await p.finished 会被 start() 打断，所以轮询 playing
@@ -2244,7 +2403,7 @@ func 播放声音并等待(角色: 角色变量, ctx: 角色基类.WarpCtx, _名
 func 停止所有声音(角色: 角色变量) -> void:
 	if not is_instance_valid(角色):
 		return
-	var 树 := 角色.get_tree()
+	var 树 = 角色.get_tree()
 	if 树 == null:
 		return
 	_停子树(角色, 树.root)
@@ -2258,7 +2417,7 @@ func _停子树(角色: 角色变量, _节点: Node) -> void:
 ## 「把音量设为 <值>」——K4 是 0-100
 func 设置音量(角色: 角色变量, _值: Variant) -> void:
 	角色.k4_音量 = clampf(角色._转数值(_值), 0.0, 100.0)
-	var p := _播放器(角色)
+	var p = _播放器(角色)
 	p.volume_db = linear_to_db(clampf(角色.k4_音量 / 100.0, 0.0, 1.0))
 
 ## 「把音量增加 <值>」
@@ -2278,7 +2437,7 @@ func 设置音量或速率(角色: 角色变量, _项: Variant, _值: Variant) -
 ## 「把 <音量 / 播放速率> 增加 <值>」
 func 增加音量或速率(角色: 角色变量, _项: Variant, _值: Variant) -> void:
 	if str(_项).to_lower().find("rate") >= 0:
-		var p := _播放器(角色)
+		var p = _播放器(角色)
 		p.pitch_scale = maxf(0.01, p.pitch_scale + 角色._转数值(_值) / 100.0)
 	else:
 		增加音量(角色, _值)
@@ -2300,12 +2459,23 @@ func 获取音符(角色: 角色变量, _参数: Variant) -> Variant:
 # pen —— 画笔
 # =============================================================================
 
-## 「落笔」：开始记线。真正画线在 画布落笔()（角色基类转发给屏幕画布）
+## 「落笔」：开始记线，并**立刻在当前位置点一个点**。
+##
+##   ★为什么"落笔"这一下必须自己画★
+##   K4/Scratch 的笔刷是**圆头**的："落笔"本身就等于把笔尖按在纸上 ——
+##   哪怕之后一步都不移动，那一点也已经留在画面上了（直径 = 画笔粗细）。
+##   以前这里只设了 k4_pen_down，真正的绘制全靠 移动后() → 画布落笔()，
+##   于是"落笔 → 抬笔、全程不移动"（alpha_drawpoint.bcm4 的「圆」角色）
+##   **一条指令都不产生**：那串逐渐变大的点一个都画不出来
+##   （实测：紫色像素恒为 0、画布指令数恒为 0）。
+##   补上这一次之后，起终点重合的线段由 屏幕绘制 画成 draw_circle 圆点。
 func 落笔(角色: 角色变量) -> void:
 	角色.k4_pen_down = true
 	角色.k4_last_pen_point = Vector2(角色.k4_x, 角色.k4_y)
 	K4Canvas.设置画笔颜色(角色.k4_pen_color)
 	K4Canvas.设置画笔粗细(角色.k4_pen_size)
+	# ★按下去就留一个点★（K4 的圆头笔刷语义）
+	角色.画布落笔(Vector2(角色.k4_x, 角色.k4_y))
 
 ## 「抬笔」
 func 抬笔(角色: 角色变量) -> void:
@@ -2323,7 +2493,7 @@ func 全部擦除(角色: 角色变量) -> void:
 ##   连累五层继承链全断（所有角色脚本都报 "Could not resolve class 角色类"）。
 ##   所以 HSL -> RGB 只能自己算（标准算法，h 0~360、s/l/a 0~1）。
 static func _色相分量(p: float, q: float, t: float) -> float:
-	var T := fposmod(t, 1.0)
+	var T = fposmod(t, 1.0)
 	if T < 1.0 / 6.0:
 		return p + (q - p) * 6.0 * T
 	if T < 1.0 / 2.0:
@@ -2335,9 +2505,9 @@ static func _色相分量(p: float, q: float, t: float) -> float:
 static func _hsl到rgb(h: float, s: float, l: float, a: float) -> Color:
 	if s <= 0.0:
 		return Color(l, l, l, a)
-	var q := (l * (1.0 + s)) if l < 0.5 else (l + s - l * s)
-	var p := 2.0 * l - q
-	var H := fposmod(h, 360.0) / 360.0
+	var q = (l * (1.0 + s)) if l < 0.5 else (l + s - l * s)
+	var p = 2.0 * l - q
+	var H = fposmod(h, 360.0) / 360.0
 	return Color(
 		_色相分量(p, q, H + 1.0 / 3.0),
 		_色相分量(p, q, H),
@@ -2354,13 +2524,13 @@ func _刷新画笔颜色(角色: 角色变量) -> void:
 
 ## RGB -> HSL，用于「把画笔颜色设为 #RRGGBB」之后同步回我们的 HSL 状态
 func _从颜色更新HSL(角色: 角色变量, _c: Color) -> void:
-	var 大 := maxf(_c.r, maxf(_c.g, _c.b))
-	var 小 := minf(_c.r, minf(_c.g, _c.b))
-	var l := (大 + 小) * 0.5
-	var h := 0.0
-	var s := 0.0
+	var 大 = maxf(_c.r, maxf(_c.g, _c.b))
+	var 小 = minf(_c.r, minf(_c.g, _c.b))
+	var l = (大 + 小) * 0.5
+	var h = 0.0
+	var s = 0.0
 	if 大 > 小:
-		var d := 大 - 小
+		var d = 大 - 小
 		s = d / (2.0 - 大 - 小) if l > 0.5 else d / (大 + 小)
 		if is_equal_approx(大, _c.r):
 			h = (_c.g - _c.b) / d + (6.0 if _c.g < _c.b else 0.0)
@@ -2414,11 +2584,11 @@ func _画笔属性项(角色: 角色变量, _项: Variant) -> String:
 ##   用户的测试例「画笔和嵌套循环测试」里那个 `self_set_pen_color_property`
 ##   就是它（每轮循环都调一次，颜色却一直不变，整条曲线纯红）。
 func 设置画笔颜色属性(角色: 角色变量, _属性: Variant, _值: Variant) -> void:
-	var 项 := _画笔属性项(角色, _属性)
+	var 项 = _画笔属性项(角色, _属性)
 	if 项 == "":
 		_桩提醒(角色, "设置画笔颜色属性：认不出的属性项「" + str(_属性) + "」")
 		return
-	var v := 角色._转数值(_值)
+	var v = 角色._转数值(_值)
 	match 项:
 		"hue":
 			角色.k4_笔_h = fposmod(v, 360.0)
@@ -2439,12 +2609,12 @@ func 设置画笔颜色属性(角色: 角色变量, _属性: Variant, _值: Vari
 ##   ② K4 把加减号放在 **increase 字段**里（increase / decrease），值一律正数 ——
 ##      和「把 <特效> 增加 <值>」那一块完全一样。
 func 增加画笔颜色属性(角色: 角色变量, _属性: Variant, _符号: Variant, _值: Variant) -> void:
-	var 项 := _画笔属性项(角色, _属性)
+	var 项 = _画笔属性项(角色, _属性)
 	if 项 == "":
 		_桩提醒(角色, "增加画笔颜色属性：认不出的属性项「" + str(_属性) + "」")
 		return
-	var 减 := str(_符号).to_lower().find("decrease") >= 0 or str(_符号).find("减") >= 0
-	var v := 角色._转数值(_值) * (-1.0 if 减 else 1.0)
+	var 减 = str(_符号).to_lower().find("decrease") >= 0 or str(_符号).find("减") >= 0
+	var v = 角色._转数值(_值) * (-1.0 if 减 else 1.0)
 	match 项:
 		"hue":
 			角色.k4_笔_h = fposmod(角色.k4_笔_h + v, 360.0)
@@ -2474,11 +2644,11 @@ func 增加画笔粗细(角色: 角色变量, _值: Variant) -> void:
 ##   实现上只把「纹理 + 位置 + 缩放」交给画笔层；画笔层自己没有角色的
 ##   modulate / 色相特效，`draw_texture` 用默认白色调制 —— 所以天然就是原纹理色。
 func 图章(角色: 角色变量) -> void:
-	var 纹 := 角色.当前纹理()
+	var 纹 = 角色.当前纹理()
 	if 纹 == null:
 		return
-	var 缩 := Vector2(absf(角色.scale.x), absf(角色.scale.y))
-	var 变 := Transform2D(0.0, 缩, 0.0, 角色.k4到舞台(Vector2(角色.k4_x, 角色.k4_y)))
+	var 缩 = Vector2(absf(角色.scale.x), absf(角色.scale.y))
+	var 变 = Transform2D(0.0, 缩, 0.0, 角色.k4到舞台(Vector2(角色.k4_x, 角色.k4_y)))
 	K4Canvas.图章(纹, 变)
 
 ## 「文字图章 <文本> <字号>」——K4 原文是「图章 <文本> <字号>」带一个对齐下拉框
@@ -2518,8 +2688,8 @@ func 设置填充(角色: 角色变量, _颜色: Variant) -> void:
 ## 终点：闭合多边形并用填充色填上。
 ## ⚠ 这两个块以前**整块没映射**，所以"设置填充"这条路完全走不通。
 func 设置填充路径(角色: 角色变量, _点: Variant) -> void:
-	var s := str(_点).to_lower()
-	var 起 := s.find("start") >= 0 or s.find("起") >= 0
+	var s = str(_点).to_lower()
+	var 起 = s.find("start") >= 0 or s.find("起") >= 0
 	K4Canvas.填充路径("start_point" if 起 else "end_point")
 	if 起:
 		# 起点这一刻的位置就是第一个路径点
@@ -2543,18 +2713,18 @@ func _下标(角色: 角色变量, _列表: Variant, _方式: Variant, _序号: 
 	if not (_列表 is Array):
 		return -1
 	var a: Array = _列表
-	var n := int(角色._转数值(_序号))
+	var n = int(角色._转数值(_序号))
 	if str(_方式).to_lower() == "last":
 		n = a.size() - n + 1
 	# K4 从 1 开始
-	var i := n - 1
+	var i = n - 1
 	if i < 0 or i >= a.size():
 		return -1
 	return i
 
 ## 「列表 <列表> 的 <方式> <序号> 项」（取值）
 func 列表取值_特殊(角色: 角色变量, _列表: Variant, _方式: Variant, _序号: Variant) -> Variant:
-	var i := _下标(角色, _列表, _方式, _序号)
+	var i = _下标(角色, _列表, _方式, _序号)
 	if i < 0:
 		return ""
 	return (_列表 as Array)[i]
@@ -2571,7 +2741,7 @@ func 列表删除_特殊(角色: 角色变量, _列表: Variant, _方式: Varian
 	if str(_方式).to_lower() == "all":
 		a.clear()
 		return
-	var i := _下标(角色, a, _方式, _序号)
+	var i = _下标(角色, a, _方式, _序号)
 	if i >= 0:
 		a.remove_at(i)
 
@@ -2581,7 +2751,7 @@ func 列表删除(角色: 角色变量, _列表: Variant, _序号: Variant) -> v
 
 ## 「把列表 <列表> 的 <方式> <序号> 项替换成 <值>」
 func 列表替换(角色: 角色变量, _列表: Variant, _方式: Variant, _序号: Variant, _值: Variant) -> void:
-	var i := _下标(角色, _列表, _方式, _序号)
+	var i = _下标(角色, _列表, _方式, _序号)
 	if i < 0:
 		return
 	var a: Array = _列表
@@ -2592,7 +2762,7 @@ func 列表插入(角色: 角色变量, _列表: Variant, _序号: Variant, _值
 	if not (_列表 is Array):
 		return
 	var a: Array = _列表
-	var i := int(角色._转数值(_序号)) - 1        # 1-based
+	var i = int(角色._转数值(_序号)) - 1        # 1-based
 	if i < 0:
 		i = 0
 	if i > a.size():
@@ -2630,7 +2800,7 @@ func 列表第几项(角色: 角色变量, _列表: Variant, _值: Variant) -> f
 	if not (_列表 is Array):
 		return 0.0
 	var i: int = (_列表 as Array).find(_值)
-	return float(i + 1) if i >= 0 else 0.0
+	return float(i + 1) if i >= 0 else 0
 
 ## 「<值> 在列表 <列表> 中的位置」（同义词）
 func 列表项序号(角色: 角色变量, _列表: Variant, _值: Variant) -> float:
@@ -2641,7 +2811,7 @@ func 列表最后位置(角色: 角色变量, _列表: Variant, _值: Variant) -
 	if not (_列表 is Array):
 		return 0.0
 	var a: Array = _列表
-	var i := a.rfind(_值)
+	var i = a.rfind(_值)
 	return float(i + 1) if i >= 0 else 0.0
 
 # -----------------------------------------------------------------------------
@@ -2650,7 +2820,7 @@ func 列表最后位置(角色: 角色变量, _列表: Variant, _值: Variant) -
 ## 「把变量 <名> 设为 <值>」——传进来的名是**生成后的成员名**（v_xxx / K4Global.v_xxx 已在调用点解析）
 ## 这里兜底处理：名字对得上就按成员走，对不上就当全局名。
 func 设置变量(角色: 角色变量, _名: Variant, _值: Variant) -> void:
-	var 名 := str(_名)
+	var 名 = str(_名)
 	if 名.begins_with("v_") or 名.begins_with("l_"):
 		角色.set(名, _值)
 	else:
@@ -2658,7 +2828,7 @@ func 设置变量(角色: 角色变量, _名: Variant, _值: Variant) -> void:
 
 ## 「把变量 <名> 增加 <值>」
 func 增加变量(角色: 角色变量, _名: Variant, _值: Variant) -> void:
-	var 名 := str(_名)
+	var 名 = str(_名)
 	var 旧: Variant = 角色.get(名) if (名.begins_with("v_") or 名.begins_with("l_")) else K4Global.取值(名)
 	var 新 = 角色.算术运算("add", 旧, _值)
 	if 名.begins_with("v_") or 名.begins_with("l_"):
@@ -2671,7 +2841,7 @@ func 增加变量(角色: 角色变量, _名: Variant, _值: Variant) -> void:
 # -----------------------------------------------------------------------------
 # ⚠ K4 的云变量是联网的（跨设备同步）。这里做成 user:// 存 JSON：
 #   语义上"存得住"，但不会和别人共享。要真联网就换成 HTTPRequest。
-const _云存档 := "user://k4_cloud.json"
+const _云存档 = "user://k4_cloud.json"
 
 static var _云: Dictionary = {}
 static var _云已载: bool = false
@@ -2681,16 +2851,16 @@ func _云加载(角色: 角色变量) -> void:
 		return
 	_云已载 = true
 	if FileAccess.file_exists(_云存档):
-		var f := FileAccess.open(_云存档, FileAccess.READ)
+		var f = FileAccess.open(_云存档, FileAccess.READ)
 		if f != null:
-			var t := f.get_as_text()
+			var t = f.get_as_text()
 			f.close()
 			var d = JSON.parse_string(t)
 			if d is Dictionary:
 				_云 = d
 
 func _云存盘(角色: 角色变量) -> void:
-	var f := FileAccess.open(_云存档, FileAccess.WRITE)
+	var f = FileAccess.open(_云存档, FileAccess.WRITE)
 	if f == null:
 		return
 	f.store_string(JSON.stringify(_云))
@@ -2710,25 +2880,22 @@ func 云变量设置(角色: 角色变量, _名: Variant, _值: Variant) -> void
 ## 「把云变量 <名> 增加 <值>」
 func 云变量增加(角色: 角色变量, _名: Variant, _值: Variant) -> void:
 	_云加载(角色)
-	var 名 := str(_名)
+	var 名 = str(_名)
 	_云[名] = 角色.算术运算("add", _云.get(名, 0.0), _值)
 	_云存盘(角色)
 
-## 桩块
-func 设置云变量(角色: 角色变量, _参数: Variant) -> void:
-	_桩提醒(角色, "设置云变量：参数没解析出来，请改用 云变量设置()")
 
 ## 「云列表 <名>」
 func 云列表(角色: 角色变量, _名: Variant) -> Array:
 	_云加载(角色)
-	var 名 := str(_名)
+	var 名 = str(_名)
 	if not (_云.get(名) is Array):
 		_云[名] = []
 	return _云[名]
 
 ## 「把 <值> 加入云列表 <名>」
 func 云列表添加(角色: 角色变量, _名: Variant, _值: Variant) -> void:
-	var a := 云列表(角色, _名)
+	var a = 云列表(角色, _名)
 	a.append(_值)
 	_云存盘(角色)
 
@@ -2737,47 +2904,47 @@ func 云列表添加(角色: 角色变量, _名: Variant, _值: Variant) -> void
 ## 「云列表 <名> 的第 <n> 项 / 最后一项」——取值
 ##   实测 K4 的 fields.TYPE = "nth" | "last"，序号输入名是 INDEX（从 1 开始）
 func 云列表第几项(角色: 角色变量, _名: Variant, _类型: Variant, _序号: Variant) -> Variant:
-	var a := 云列表(角色, _名)
+	var a = 云列表(角色, _名)
 	if a.is_empty():
 		return 0.0
-	var i := _云列表下标(角色, _类型, _序号, a.size())
+	var i = _云列表下标(角色, _类型, _序号, a.size())
 	return a[i] if (i >= 0 and i < a.size()) else 0.0
 
 ## 「插入 <值> 到 云列表 的第 <n> 项」
 ##   ⚠ 以前这个块和"添加到末尾"共用同一个分支 → 选第 4 项也永远插在最后
 func 云列表插入(角色: 角色变量, _名: Variant, _序号: Variant, _值: Variant) -> void:
-	var a := 云列表(角色, _名)
-	var i := clampi(int(roundf(角色._转数值(_序号))) - 1, 0, a.size())
+	var a = 云列表(角色, _名)
+	var i = clampi(int(roundf(角色._转数值(_序号))) - 1, 0, a.size())
 	a.insert(i, _值)
 	_云存盘(角色)
 
 ## 「删除 云列表 的 <第 n 项 / 最后一项 / 所有项>」
 func 云列表删除(角色: 角色变量, _名: Variant, _类型: Variant, _序号: Variant) -> void:
-	var a := 云列表(角色, _名)
+	var a = 云列表(角色, _名)
 	if a.is_empty():
 		return
-	var t := str(_类型).to_lower()
+	var t = str(_类型).to_lower()
 	if t == "all" or t == "所有" or t == "所有项" or t == "全部":
 		a.clear()
 	else:
-		var i := _云列表下标(角色, _类型, _序号, a.size())
+		var i = _云列表下标(角色, _类型, _序号, a.size())
 		if i >= 0 and i < a.size():
 			a.remove_at(i)
 	_云存盘(角色)
 
 ## 「替换 云列表 的 <第 n 项 / 最后一项> 为 <值>」
 func 云列表替换(角色: 角色变量, _名: Variant, _类型: Variant, _序号: Variant, _值: Variant) -> void:
-	var a := 云列表(角色, _名)
+	var a = 云列表(角色, _名)
 	if a.is_empty():
 		return
-	var i := _云列表下标(角色, _类型, _序号, a.size())
+	var i = _云列表下标(角色, _类型, _序号, a.size())
 	if i >= 0 and i < a.size():
 		a[i] = _值
 	_云存盘(角色)
 
 ## (类型, 序号) -> 0 基下标；last = 最后一项，序号从 1 开始（K4 语义）
 func _云列表下标(角色: 角色变量, _类型: Variant, _序号: Variant, _长度: int) -> int:
-	var t := str(_类型).to_lower()
+	var t = str(_类型).to_lower()
 	if t == "last" or t == "最后" or t == "最后一项":
 		return _长度 - 1
 	return clampi(int(roundf(角色._转数值(_序号))) - 1, 0, maxi(0, _长度 - 1))
@@ -2805,12 +2972,12 @@ func 隐藏排行榜(角色: 角色变量) -> void:
 
 ## 「排行榜 <show / hide> 是否显示着」
 func 排行榜是否显示(角色: 角色变量, _项: Variant) -> bool:
-	var 想 := str(_项).to_lower()
-	var 应是 := 想.find("show") >= 0 or 想.find("显示") >= 0
+	var 想 = str(_项).to_lower()
+	var 应是 = 想.find("show") >= 0 or 想.find("显示") >= 0
 	return 角色.k4_排行榜显示 == 应是
 
 func _是显示(角色: 角色变量, _开关: Variant) -> bool:
-	var s := str(_开关).to_lower()
+	var s = str(_开关).to_lower()
 	if s.find("hide") >= 0 or s.find("隐藏") >= 0 or s == "false" or s == "0":
 		return false
 	return true
@@ -2838,7 +3005,7 @@ func 运行设备(角色: 角色变量) -> String:
 ## 「运行设备为 <手机 / 电脑>」
 ##   实测 K4 的 fields.device = "mobile"（还有 pc 一类）
 func 运行设备为(角色: 角色变量, _设备: Variant) -> bool:
-	var d := str(_设备).to_lower()
+	var d = str(_设备).to_lower()
 	if d.find("mobile") >= 0 or d.find("手机") >= 0 or d.find("android") >= 0 or d.find("ios") >= 0:
 		return 运行设备(角色) == "mobile"
 	if d.find("pc") >= 0 or d.find("电脑") >= 0 or d.find("computer") >= 0:
@@ -2852,18 +3019,18 @@ func 运行设备为(角色: 角色变量, _设备: Variant) -> bool:
 
 ## 「<a> 除以 <b> 的余数」——K4/Scratch 的结果符号**跟随除数**
 func 取余(角色: 角色变量, _a: Variant, _b: Variant) -> Variant:
-	var x := 角色._转数值(_a)
-	var y := 角色._转数值(_b)
+	var x = 角色._转数值(_a)
+	var y = 角色._转数值(_b)
 	if y == 0.0:
 		return 0.0
-	var r := fmod(x, y)
+	var r = fmod(x, y)
 	if r != 0.0 and ((r < 0.0) != (y < 0.0)):
 		r += y
 	return r
 
 ## 「<a> 是 <b> 的倍数吗」
 func 是倍数(角色: 角色变量, _a: Variant, _b: Variant) -> bool:
-	var y := 角色._转数值(_b)
+	var y = 角色._转数值(_b)
 	if y == 0.0:
 		return false
 	return is_zero_approx(fmod(角色._转数值(_a), y))
@@ -2873,7 +3040,7 @@ func 是倍数(角色: 角色变量, _a: Variant, _b: Variant) -> bool:
 ##   round_rounddown = 向下取整（floor）
 ##   round_roundup   = 向上取整（ceiling）
 func 取整(角色: 角色变量, _模式: Variant, _值: Variant) -> float:
-	var v := 角色._转数值(_值)
+	var v = 角色._转数值(_值)
 	match str(_模式).to_lower():
 		"round_round", "round", "四舍五入":
 			return roundf(v)
@@ -2885,7 +3052,7 @@ func 取整(角色: 角色变量, _模式: Variant, _值: Variant) -> float:
 
 ## 「<函数> <值>」——数学函数
 func 数学函数(角色: 角色变量, _函数: Variant, _值: Variant) -> float:
-	var v := 角色._转数值(_值)
+	var v = 角色._转数值(_值)
 	match str(_函数).to_lower():
 		"abs", "绝对值":
 			return absf(v)
@@ -2921,7 +3088,7 @@ func 数学函数(角色: 角色变量, _函数: Variant, _值: Variant) -> floa
 
 ## 「<函数> <值>」——三角函数（K4 用**度**）
 func 三角函数(角色: 角色变量, _函数: Variant, _值: Variant) -> float:
-	var v := 角色._转数值(_值)
+	var v = 角色._转数值(_值)
 	match str(_函数).to_lower():
 		"sin":
 			return sin(deg_to_rad(v))
@@ -2933,8 +3100,8 @@ func 三角函数(角色: 角色变量, _函数: Variant, _值: Variant) -> floa
 
 ## 「<值> 的 <次> 次方根」
 func 开方(角色: 角色变量, _值: Variant, _次: Variant) -> float:
-	var v := 角色._转数值(_值)
-	var n := 角色._转数值(_次)
+	var v = 角色._转数值(_值)
+	var n = 角色._转数值(_次)
 	if n == 0.0:
 		return 0.0
 	if v < 0.0 and absf(fmod(n, 2.0)) == 1.0:
@@ -2943,17 +3110,17 @@ func 开方(角色: 角色变量, _值: Variant, _次: Variant) -> float:
 
 ## 「<属性> <值>」——数学属性判断
 func 数学属性(角色: 角色变量, _属性: Variant, _值: Variant) -> bool:
-	var v := 角色._转数值(_值)
+	var v = 角色._转数值(_值)
 	match str(_属性).to_lower():
 		"even", "偶数":
 			return is_zero_approx(fmod(v, 2.0))
 		"odd", "奇数":
 			return not is_zero_approx(fmod(v, 2.0))
 		"prime", "质数":
-			var n := int(v)
+			var n = int(v)
 			if n < 2:
 				return false
-			var i := 2
+			var i = 2
 			while i * i <= n:
 				if n % i == 0:
 					return false
@@ -3035,29 +3202,29 @@ func 文本包含(角色: 角色变量, _文本: Variant, _子串: Variant) -> b
 
 ## 「<文本> 的第 <序号> 个字符」——**1-based**，越界返回 ""
 func 文本取字符(角色: 角色变量, _文本: Variant, _序号: Variant) -> String:
-	var s := 转文本(角色, _文本)
-	var i := int(角色._转数值(_序号)) - 1
+	var s = 转文本(角色, _文本)
+	var i = int(角色._转数值(_序号)) - 1
 	if i < 0 or i >= s.length():
 		return ""
 	return s[i]
 
 ## 「<值> 在 <文本> 中第几个字符」——**1-based**，找不到返回 0
 func 文本第几个字符(角色: 角色变量, _文本: Variant, _值: Variant) -> float:
-	var i := 转文本(角色, _文本).find(转文本(角色, _值))
+	var i = 转文本(角色, _文本).find(转文本(角色, _值))
 	return float(i + 1) if i >= 0 else 0.0
 
 ## 「<值> 在 <文本> 中最后出现的位置」——**1-based**，找不到返回 0
 func 文本最后位置(角色: 角色变量, _文本: Variant, _值: Variant) -> float:
-	var i := 转文本(角色, _文本).rfind(转文本(角色, _值))
+	var i = 转文本(角色, _文本).rfind(转文本(角色, _值))
 	return float(i + 1) if i >= 0 else 0.0
 
 ## 「<文本> 的第 <起> 到第 <止> 个字符」（含两端，1-based）
 func 文本截取(角色: 角色变量, _文本: Variant, _起: Variant, _止: Variant) -> String:
-	var s := 转文本(角色, _文本)
-	var a := int(角色._转数值(_起))
-	var b := int(角色._转数值(_止))
+	var s = 转文本(角色, _文本)
+	var a = int(角色._转数值(_起))
+	var b = int(角色._转数值(_止))
 	if a > b:
-		var t := a
+		var t = a
 		a = b
 		b = t
 	if a < 1:
@@ -3121,13 +3288,13 @@ func _分割计算(角色: 角色变量, 文: String, 分: String) -> Array:
 #
 #   ⚠ 缓存**只在内部使用**，绝不把数组交给调用方 —— 所以调用方没法改坏缓存
 #     （这也是它比"给 文本分割 加缓存"更安全的地方：那个会暴露可变数组）。
-const _分割缓存上限 := 16
+const _分割缓存上限 = 16
 static var _分割缓存: Dictionary = {}
 
 func 文本分割取值(角色: 角色变量, _文本: Variant, _分隔符: Variant, _方式: Variant, _序号: Variant) -> Variant:
-	var 文 := 转文本(角色, _文本)
-	var 分 := 转文本(角色, _分隔符)
-	var 键 := 文 + "\u0001" + 分
+	var 文 = 转文本(角色, _文本)
+	var 分 = 转文本(角色, _分隔符)
+	var 键 = 文 + "\u0001" + 分
 	var 表: Array = _分割缓存.get(键, [])
 	if 表.is_empty():
 		表 = _分割计算(角色, 文, 分)
@@ -3144,7 +3311,7 @@ func 文本分割取值(角色: 角色变量, _文本: Variant, _分隔符: Vari
 static var _数字正则: RegEx = null
 
 func _分割项转值(角色: 角色变量, _s: String) -> Variant:
-	var t := _s.strip_edges()
+	var t = _s.strip_edges()
 	if t.is_empty():
 		return _s
 	if _数字正则 == null:
@@ -3170,7 +3337,7 @@ func 转文本(角色: 角色变量, _值: Variant) -> String:
 
 ## 「把 <值> 转成数字」
 func 转数字(角色: 角色变量, _值: Variant) -> float:
-	var n := 角色._转数值(_值)
+	var n = 角色._转数值(_值)
 	return 0.0 if is_nan(n) else n
 
 ## 「把 <值> 转成 <类型>」
@@ -3186,20 +3353,20 @@ func 转换类型(角色: 角色变量, _类型: Variant, _值: Variant) -> Vari
 
 ## 「<起> 到 <止> 之间的随机小数」
 func 随机小数(角色: 角色变量, _起: Variant, _止: Variant) -> float:
-	var a := 角色._转数值(_起)
-	var b := 角色._转数值(_止)
+	var a = 角色._转数值(_起)
+	var b = 角色._转数值(_止)
 	if a > b:
-		var t := a
+		var t = a
 		a = b
 		b = t
 	return randf_range(a, b)
 
 ## 「<起> 到 <止> 之间的随机整数」——**含两端**（Scratch/K4 语义）
 func 随机整数(角色: 角色变量, _起: Variant, _止: Variant) -> float:
-	var a := int(roundf(角色._转数值(_起)))
-	var b := int(roundf(角色._转数值(_止)))
+	var a = int(roundf(角色._转数值(_起)))
+	var b = int(roundf(角色._转数值(_止)))
 	if a > b:
-		var t := a
+		var t = a
 		a = b
 		b = t
 	return float(randi_range(a, b))

@@ -46,7 +46,7 @@ static func _建表() -> void:
 	_已建表 = true
 
 	# ── ① 中文 / 英文别名 ──（键用小写存，查表时统一转小写）
-	var 别名 := {
+	var 别名 = {
 		"空格": KEY_SPACE, "空格键": KEY_SPACE,
 		"上": KEY_UP, "上箭头": KEY_UP, "向上": KEY_UP,
 		"下": KEY_DOWN, "下箭头": KEY_DOWN, "向下": KEY_DOWN,
@@ -65,7 +65,7 @@ static func _建表() -> void:
 
 	# ── ② 英文键名（Godot 的枚举名小写形式 + 常见别名）──
 	#    这些和 KEY_ 枚举名一致，写全是为了不依赖 OS.find_keycode_from_string 的模糊行为
-	var 英文 := {
+	var 英文 = {
 		"space": KEY_SPACE, "spacebar": KEY_SPACE,
 		"up": KEY_UP, "down": KEY_DOWN, "left": KEY_LEFT, "right": KEY_RIGHT,
 		"enter": KEY_ENTER, "return": KEY_ENTER, "numpad_enter": KEY_KP_ENTER,
@@ -92,13 +92,13 @@ static func _建表() -> void:
 		_名字表[String(k)] = 英文[k]
 
 	# ── ③ 字母 / 数字（Godot 里 KEY_A..KEY_Z、KEY_0..KEY_9 与 ASCII 连续）──
-	var 字母 := "abcdefghijklmnopqrstuvwxyz"
+	var 字母 = "abcdefghijklmnopqrstuvwxyz"
 	for i in 字母.length():
 		var 码: int = KEY_A + i
-		var ch := 字母[i]
+		var ch = 字母[i]
 		_名字表[ch] = 码                    # 小写键（查表时统一 lowercase）
 		_名字表[ch.to_upper()] = 码          # 大写也存一份（有人直接拿原串查）
-	var 数字 := "0123456789"
+	var 数字 = "0123456789"
 	for i in 数字.length():
 		_名字表[数字[i]] = KEY_0 + i
 
@@ -145,7 +145,7 @@ static func 是任意键(_名: Variant) -> bool:
 
 ## 这个键名能不能解析出具体按键（空 / 不认识 → false）
 static func 是已配置(_名: Variant) -> bool:
-	var 名 := str(_名).strip_edges()
+	var 名 = str(_名).strip_edges()
 	if 名 == "":
 		return false
 	if 是任意键(名):
@@ -155,7 +155,7 @@ static func 是已配置(_名: Variant) -> bool:
 ## 键名 → Godot 的 Key 码；认不出来返回 KEY_NONE
 ##   ⚠ 「任意键」没有具体码，返回 KEY_NONE（用 是任意键() 单独判断）
 static func 解析(_名: Variant) -> int:
-	var 名 := str(_名).strip_edges()
+	var 名 = str(_名).strip_edges()
 	if 名 == "" or 是任意键(名):
 		return KEY_NONE
 	_建表()
@@ -164,22 +164,22 @@ static func 解析(_名: Variant) -> int:
 	if 名.is_valid_int():
 		if _K4表.has(名):
 			return int(_K4表[名])
-		var n := int(名)
+		var n = int(名)
 		if (n >= 65 and n <= 90) or (n >= 48 and n <= 57):
 			return n
 		return KEY_NONE
 
 	# ② KEY_XXX
-	var 大 := 名.to_upper()
+	var 大 = 名.to_upper()
 	if 大.begins_with("KEY_"):
-		var 短 := 大.substr(4).to_lower()
+		var 短 = 大.substr(4).to_lower()
 		if _名字表.has(短):
 			return int(_名字表[短])
-		var 码 := OS.find_keycode_from_string(大)
+		var 码 = OS.find_keycode_from_string(大)
 		return 码 if 码 != KEY_NONE else KEY_NONE
 
 	# ③ 名字表（中文 / 英文 / 单字符，大小写不敏感）
-	var 低 := 名.to_lower()
+	var 低 = 名.to_lower()
 	if _名字表.has(低):
 		return int(_名字表[低])
 	if _名字表.has(名):
@@ -187,13 +187,13 @@ static func 解析(_名: Variant) -> int:
 
 	# ④ 多字符单词：交给引擎兜底（"Left" / "Space" 这类）
 	if 名.length() > 1:
-		var 码2 := OS.find_keycode_from_string(名)
+		var 码2 = OS.find_keycode_from_string(名)
 		if 码2 != KEY_NONE:
 			return 码2
 
 	# ⑤ 单字符：可打印字符本身就等于 Key 码（ASCII）
 	if 名.length() == 1:
-		var u := 名.unicode_at(0)
+		var u = 名.unicode_at(0)
 		if u > 0:
 			return u
 	return KEY_NONE
@@ -202,11 +202,13 @@ static func 解析(_名: Variant) -> int:
 static func 当前按下(_名: Variant) -> bool:
 	if 是任意键(_名):
 		return Input.is_anything_pressed()
-	var 码 := 解析(_名)
+	var 码 = 解析(_名)
 	if 码 == KEY_NONE:
 		return false
 	# 逻辑键码 + 物理键码都问一遍：不同键盘布局下两者可能只有一个对上
 	return Input.is_key_pressed(码) or Input.is_physical_key_pressed(码)
+
+
 
 ## 收到的按键事件是否匹配（帽子触发用）。
 ##   调用方**先把键名解析好**（`解析()` / `是任意键()`）再传进来 —— 帽子是 `_ready`
